@@ -4,7 +4,7 @@
 
 **Android Device Desk는 Windows PC에서 여러 안드로이드 기기의 화면을 한눈에 보고 조작하는 데스크톱 앱입니다.** Windows 표시 언어가 한국어이면 한국어, 그 외에는 영어로 표시합니다. 기기 격자에서 폰을 드래그로 묶고, 대표 화면을 한 번 탭하거나 스와이프해 선택한 기기에 같은 입력을 전달할 수 있습니다. 한 대를 자세히 볼 때는 별도의 미러링 창과 기기 조작 패널을 엽니다.
 
-> 드래그 후 자동 열림과 Windows 표시 언어 선택은 현재 소스 빌드에 적용됩니다. v0.1.0 릴리스에서는 드래그 후 **동시 조작** 버튼을 누릅니다.
+> USB 인터넷 공유, 드래그 후 동시 조작 창 자동 열림, Windows 표시 언어 감지는 현재 소스 빌드에 적용됩니다. v0.1.0 릴리스에서는 드래그 후 **동시 조작** 버튼을 누릅니다.
 
 ## 화면 미리보기
 
@@ -33,6 +33,7 @@
 | 개별 기기 도구 | 캡처, APK 설치, 다운로드 폴더 파일 전송, 회전 설정, 재시작, 앱 검색·실행을 지원합니다. |
 | 보기 전용 및 녹화 | 마우스·키보드 제어를 끄고 미러링 창을 열면 보기 전용입니다. 지원되는 기기에서 소리를 전달하고 MKV로 녹화할 수 있습니다. |
 | 기기 정리 | 번호, 별칭, 태그와 연결 방식으로 기기를 찾습니다. 창 너비, 해상도, 최대 FPS를 조정할 수 있습니다. |
+| USB 인터넷 공유 | USB로 연결한 Android 기기에 PC의 인터넷을 공유합니다. 첫 연결 때 폰에서 VPN 요청을 승인합니다. |
 
 ## 다운로드와 첫 연결
 
@@ -69,6 +70,15 @@ Get-FileHash .\AndroidDeviceDesk.exe -Algorithm SHA256
 - **화면 녹화**를 켜고 미러링을 열면 `%USERPROFILE%\Videos\Android Device Desk` 아래에 MKV 파일이 저장됩니다. 녹화가 끝나면 미러링 창을 닫아 파일을 마무리합니다.
 - **미리보기**를 끄면 격자 캡처가 멈춥니다. 동시 조작을 열면 입력 기준이 되는 대표 화면은 계속 갱신됩니다.
 
+## USB로 PC 인터넷 공유하기
+
+1. USB 디버깅을 승인한 기기를 하나 이상 선택합니다. PC 인터넷이 연결돼 있어야 합니다.
+2. 오른쪽 **USB 인터넷 공유**에서 **선택 기기에 켜기**를 누릅니다. 처음에는 앱에 내장된 Gnirehtet 보조 앱을 선택한 폰에 설치합니다.
+3. 각 폰의 잠금을 해제하고 **Gnirehtet VPN 연결 요청**을 승인합니다. 기기 데스크의 목록에서 **VPN 실행 중**을 확인합니다.
+4. 폰의 Wi-Fi와 모바일 데이터가 꺼진 상태에서도 브라우저에서 웹사이트를 열 수 있습니다. 종료하려면 **선택 기기에 끄기** 또는 **모두 끄기**를 사용합니다.
+
+PC와 USB 케이블이 연결돼 있고 기기 데스크가 실행 중이어야 합니다. Android의 VPN을 사용하므로 기존 VPN이 있는 기기에서는 전환이 필요할 수 있습니다. Gnirehtet은 IPv4 TCP·UDP를 전달합니다. USB를 뽑았다 다시 연결한 기기는 공유를 다시 켤 수 있습니다. [Gnirehtet 사용 안내](https://github.com/Genymobile/gnirehtet/tree/v2.5.1)
+
 ## 구조와 데이터 저장
 
 | 구성 | 역할 |
@@ -92,7 +102,7 @@ cd AndroidDeviceDesk
 powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 ```
 
-스크립트는 공식 scrcpy Windows 아카이브를 받고 SHA-256을 확인한 다음, 잠금 파일을 적용해 Rust 릴리스 빌드를 실행합니다. 산출물은 `dist\AndroidDeviceDesk.exe`입니다. 빌드 후 테스트를 실행할 수 있습니다.
+스크립트는 공식 scrcpy와 Gnirehtet Windows 아카이브를 받고 SHA-256을 확인한 다음, 잠금 파일을 적용해 Rust 릴리스 빌드를 실행합니다. 산출물은 `dist\AndroidDeviceDesk.exe`입니다. 빌드 후 테스트를 실행할 수 있습니다.
 
 ```powershell
 cargo test --locked --release --manifest-path .\rust-app\Cargo.toml
@@ -104,6 +114,7 @@ cargo test --locked --release --manifest-path .\rust-app\Cargo.toml
 | `rust-app/src/panel.rs` | 개별 기기 패널과 앱 검색·실행, 파일 도구 |
 | `rust-app/src/batch.rs` | 대표 화면 입력, 화면 좌표 변환, 대상별 병렬 실행 |
 | `rust-app/src/engine.rs` | 내장 엔진 준비, ADB 검색·라우팅, 이미지 캡처, 미러링 창 연동 |
+| `rust-app/src/tether.rs` | Gnirehtet 중계와 USB 역테더링 시작·중지·상태 확인 |
 | `scripts/build.ps1` | 공식 런타임 다운로드·해시 검증 및 단일 EXE 빌드 |
 
 ## 연결 문제 해결

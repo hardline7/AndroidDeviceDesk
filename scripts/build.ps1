@@ -4,22 +4,34 @@ param()
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $vendor = Join-Path $root 'vendor'
-$engine = Join-Path $vendor 'scrcpy-win64-v5.0.1.zip'
-$url = 'https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/scrcpy-win64-v5.0.1.zip'
-$sha256 = 'B12A2C4EE8BE317422451FC7DCF8EE20A71B5EA7EF9AD73DDD825A25316227A5'
 $manifest = Join-Path $root 'rust-app/Cargo.toml'
 
 New-Item -Type Directory -Force -Path $vendor | Out-Null
-if (-not (Test-Path -LiteralPath $engine)) {
-    $download = "$engine.download"
-    Invoke-WebRequest -Uri $url -OutFile $download
-    if ((Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash -ne $sha256) {
-        throw 'The downloaded scrcpy archive did not match the published SHA-256.'
+$runtimes = @(
+    @{
+        File = 'scrcpy-win64-v5.0.1.zip'
+        Url = 'https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/scrcpy-win64-v5.0.1.zip'
+        Sha256 = 'B12A2C4EE8BE317422451FC7DCF8EE20A71B5EA7EF9AD73DDD825A25316227A5'
+    },
+    @{
+        File = 'gnirehtet-rust-win64-v2.5.1.zip'
+        Url = 'https://github.com/Genymobile/gnirehtet/releases/download/v2.5.1/gnirehtet-rust-win64-v2.5.1.zip'
+        Sha256 = '7F5B1063E7895182AA60DEF1437E50363C3758144088DCD079037BB7C3C46A1C'
     }
-    Move-Item -LiteralPath $download -Destination $engine
-}
-if ((Get-FileHash -LiteralPath $engine -Algorithm SHA256).Hash -ne $sha256) {
-    throw "The engine archive has an unexpected SHA-256. Replace it with the official archive at $url."
+)
+foreach ($runtime in $runtimes) {
+    $engine = Join-Path $vendor $runtime.File
+    if (-not (Test-Path -LiteralPath $engine)) {
+        $download = "$engine.download"
+        Invoke-WebRequest -Uri $runtime.Url -OutFile $download
+        if ((Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash -ne $runtime.Sha256) {
+            throw "The downloaded archive did not match the published SHA-256: $($runtime.File)"
+        }
+        Move-Item -LiteralPath $download -Destination $engine
+    }
+    if ((Get-FileHash -LiteralPath $engine -Algorithm SHA256).Hash -ne $runtime.Sha256) {
+        throw "Unexpected SHA-256. Replace the runtime with the official archive at $($runtime.Url)."
+    }
 }
 
 Push-Location $root

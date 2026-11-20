@@ -27,10 +27,16 @@ pub fn data_dir() -> PathBuf {
 }
 
 pub fn install_engine() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let root = data_dir().join("engine");
-    let destination = root.join(ENGINE_VERSION);
+    unpack_runtime(ENGINE_VERSION, ENGINE_ZIP)
+}
+
+pub fn unpack_runtime(
+    version: &str,
+    archive: &[u8],
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let destination = data_dir().join("engine").join(version);
     fs::create_dir_all(&destination)?;
-    let mut zip = zip::ZipArchive::new(Cursor::new(ENGINE_ZIP))?;
+    let mut zip = zip::ZipArchive::new(Cursor::new(archive))?;
     for index in 0..zip.len() {
         let mut entry = zip.by_index(index)?;
         if entry.is_dir() {

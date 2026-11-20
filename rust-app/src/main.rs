@@ -5,6 +5,7 @@ mod locale;
 mod batch;
 mod engine;
 mod panel;
+mod tether;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::{self, File};
@@ -93,6 +94,7 @@ enum Event {
     Preview(Device, u64, Option<engine::ScreenPreview>),
     Action(String, String, Result<String, String>),
     BatchDone(usize, usize, String, Option<String>),
+    Sharing(tether::ResultEvent),
 }
 
 struct Mirror {
@@ -131,6 +133,7 @@ struct Desk {
     tag_edit: Option<String>,
     marquee: Option<(Pos2, bool)>,
     batch: batch::Batch,
+    sharing: tether::Sharing,
 }
 
 fn install_fonts(ctx: &Context) {
@@ -189,6 +192,7 @@ impl Desk {
             tag_edit: None,
             marquee: None,
             batch: batch::Batch::default(),
+            sharing: tether::Sharing::default(),
         }
     }
 
@@ -321,6 +325,7 @@ impl Desk {
                     }
                 }
                 Event::Action(id, label, result) => self.action_result(id, label, result),
+                Event::Sharing(event) => self.sharing_event(event),
                 Event::BatchDone(delivered, attempted, label, failure) => {
                     self.batch.busy = false;
                     self.batch.status = trf!(
@@ -775,6 +780,7 @@ impl Desk {
         ) {
             self.open_batch(ui.ctx());
         }
+        self.internet_button(ui);
         ui.separator();
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -1122,6 +1128,7 @@ fn primary(ui: &mut Ui, label: &str, enabled: bool) -> bool {
 impl eframe::App for Desk {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         self.events(ctx);
+        self.update_sharing(ctx);
         if Instant::now() >= self.next_inventory {
             self.refresh(ctx);
         }
@@ -1218,6 +1225,7 @@ impl eframe::App for Desk {
         }
         self.render_panel(ctx);
         self.render_batch(ctx);
+        self.internet_window(ctx);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1230,6 +1238,7 @@ impl eframe::App for Desk {
                 .retain(|_, mirror| !matches!(mirror.child.try_wait(), Ok(Some(_))));
             thread::sleep(Duration::from_millis(70));
         }
+        self.stop_sharing_on_exit();
     }
 }
 

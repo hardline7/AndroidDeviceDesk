@@ -4,7 +4,7 @@
 
 **Android Device Desk is a Windows desktop app for mirroring and controlling multiple Android devices.** Drag across the device grid to select several phones, then use a representative screen to send the same tap or swipe to the group. Open a separate full-size mirror and control panel when you need to work on one device. The interface follows the Windows display language and uses English for all display languages other than Korean.
 
-> The source build includes automatic batch-window opening and Windows display-language detection. In release v0.1.0, click **Batch Control** after dragging.
+> The source build includes USB Internet sharing, automatic batch-window opening, and Windows display-language detection. In release v0.1.0, click **Batch Control** after dragging.
 
 ## Screenshots
 
@@ -33,6 +33,7 @@ Captured with sample devices. Select a thumbnail to open the larger image.
 | Device tools | Capture screenshots, install APKs, transfer files in the device's Download folder, change orientation, reboot, and find or launch apps. |
 | View-only and recording | Disable mouse and keyboard control before opening a mirror for view-only use. Supported devices can forward audio and record to MKV. |
 | Organization | Find devices by number, alias, tag, or connection type. Adjust window width, resolution, and maximum frame rate. |
+| USB Internet sharing | Give USB-connected Android devices access to the PC’s Internet connection. Approve the VPN prompt on each device the first time. |
 
 ## Download and connect
 
@@ -69,6 +70,15 @@ Tap and swipe locations are relative to the representative image and are mapped 
 - Enable **화면 녹화** (Screen recording) before starting a mirror to save MKV files under `%USERPROFILE%\Videos\Android Device Desk`. Close the mirror to finish the recording.
 - Turning **미리보기** (Previews) off stops grid capture. An open batch-control window continues refreshing the representative display for input.
 
+## Share the PC’s Internet over USB
+
+1. Select one or more USB-connected devices with debugging authorized. Make sure the PC has Internet access.
+2. Open **USB Internet sharing** and choose **Enable for selected**. Device Desk installs the bundled Gnirehtet companion app when needed.
+3. Unlock each phone and approve the **Gnirehtet VPN** request. Check for **VPN running** in Device Desk.
+4. With Wi-Fi and mobile data disabled, open a website in the phone’s browser. Choose **Disable for selected** or **Disable all** to end sharing.
+
+Keep Device Desk running and the USB cable connected. Sharing uses Android’s VPN facility, so an existing VPN may need to be switched. Gnirehtet relays IPv4 TCP and UDP. If a device is unplugged, reconnect it and enable sharing again. [Gnirehtet documentation](https://github.com/Genymobile/gnirehtet/tree/v2.5.1)
+
 ## Architecture and local data
 
 | Component | Role |
@@ -92,7 +102,7 @@ cd AndroidDeviceDesk
 powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
 ```
 
-The script downloads the official Windows scrcpy archive, checks its SHA-256, and builds the Rust release with the committed dependency lockfile. It writes `dist\AndroidDeviceDesk.exe`. After building, run the tests with:
+The script downloads the official Windows scrcpy and Gnirehtet archives, checks their SHA-256 hashes, and builds the Rust release with the committed dependency lockfile. It writes `dist\AndroidDeviceDesk.exe`. After building, run the tests with:
 
 ```powershell
 cargo test --locked --release --manifest-path .\rust-app\Cargo.toml
@@ -104,6 +114,7 @@ cargo test --locked --release --manifest-path .\rust-app\Cargo.toml
 | `rust-app/src/panel.rs` | Individual device actions, app search and launch, and file tools |
 | `rust-app/src/batch.rs` | Representative-screen input, coordinate conversion, and parallel dispatch |
 | `rust-app/src/engine.rs` | Embedded runtime setup, ADB discovery and routing, image capture, and mirroring integration |
+| `rust-app/src/tether.rs` | Gnirehtet relay and USB reverse tethering lifecycle |
 | `scripts/build.ps1` | Download and verify the official runtime archive, then build the single EXE |
 
 ## Troubleshooting

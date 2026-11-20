@@ -12,5 +12,6 @@ The release includes a separate `third-party-sources.zip` download with the upst
 | libusb 1.0.30 | [Source and LGPL license](https://github.com/libusb/libusb/tree/v1.0.30) · [Build recipe](https://github.com/Genymobile/scrcpy/blob/v5.0.1/app/deps/libusb.sh) |
 | SDL 3.4.18 | [Source and zlib license](https://github.com/libsdl-org/SDL/tree/release-3.4.18) · [Build recipe](https://github.com/Genymobile/scrcpy/blob/v5.0.1/app/deps/sdl.sh) |
 | ADB, Android SDK Platform-Tools 37.0.1 | [AOSP ADB source](https://android.googlesource.com/platform/packages/modules/adb/) · [Upstream package recipe](https://github.com/Genymobile/scrcpy/blob/v5.0.1/app/deps/adb_windows.sh) · `platform-tools-37.0.1-NOTICE.txt` in the source asset |
+| Gnirehtet 2.5.1 | [Source and original release](https://github.com/Genymobile/gnirehtet/tree/v2.5.1) · [Apache-2.0 license](third-party/gnirehtet-LICENSE.txt) |
 
 Rust crate versions are pinned in [Cargo.lock](rust-app/Cargo.lock). The release asset also contains the Windows x64 dependency inventory and the license and notice files provided in those crates.
