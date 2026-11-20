@@ -4,7 +4,7 @@
 
 **Android Device Desk is a Windows desktop app for mirroring and controlling multiple Android devices.** Drag across the device grid to select several phones, then use a representative screen to send the same tap or swipe to the group. Open a separate full-size mirror and control panel when you need to work on one device. The interface follows the Windows display language and uses English for all display languages other than Korean.
 
-> These screenshots and instructions cover the current main source build, which includes USB Internet sharing, the local API, Windows display-language detection, and automatic batch-window opening. In release v0.1.0, click **Batch Control** after dragging.
+> [Windows release v0.2.0](https://github.com/hardline7/AndroidDeviceDesk/releases/tag/v0.2.0) includes USB Internet sharing, the local API, Windows display-language detection, and automatic batch-window opening.
 
 ## Screenshots from connected devices
 
