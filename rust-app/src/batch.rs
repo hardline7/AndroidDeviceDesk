@@ -169,6 +169,11 @@ impl Desk {
             "대표 화면을 클릭하거나 스와이프하면 선택한 기기에 전달됩니다.",
             "Click or swipe the reference screen to control the selected devices."
         ));
+        if ui.button(tr!("작업 프리셋", "Job presets")).clicked() {
+            self.open_selected_presets();
+            ui.ctx()
+                .send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Focus);
+        }
         ui.add_space(4.);
         let height = (ui.available_height() - 107.).max(140.);
         let (area, _) =

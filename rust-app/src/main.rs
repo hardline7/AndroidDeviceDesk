@@ -4,8 +4,10 @@
 mod locale;
 mod api;
 mod batch;
+mod desk_ui;
 mod engine;
 mod panel;
+mod presets;
 mod tether;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -78,6 +80,7 @@ struct Preferences {
     devices: BTreeMap<String, Note>,
     size_mode: String,
     windows: WindowSettings,
+    presets: presets::Catalog,
 }
 
 impl Default for Preferences {
@@ -86,6 +89,7 @@ impl Default for Preferences {
             devices: BTreeMap::new(),
             size_mode: "자동".into(),
             windows: WindowSettings::default(),
+            presets: presets::Catalog::default(),
         }
     }
 }
@@ -136,6 +140,8 @@ struct Desk {
     batch: batch::Batch,
     sharing: tether::Sharing,
     api: api::Api,
+    presets: presets::Panel,
+    tool: Option<desk_ui::Tool>,
 }
 
 fn install_fonts(ctx: &Context) {
@@ -160,11 +166,12 @@ impl Desk {
     fn new(root: PathBuf, ctx: &Context) -> Self {
         install_fonts(ctx);
         ctx.set_visuals(monochrome(false));
-        let preferences = fs::read(engine::data_dir().join("preferences.json"))
+        let preferences: Preferences = fs::read(engine::data_dir().join("preferences.json"))
             .ok()
             .and_then(|data| serde_json::from_slice(&data).ok())
             .unwrap_or_default();
         let (tx, rx) = mpsc::channel();
+        let api = api::Api::new(root.clone(), preferences.presets.clone());
         Self {
             root,
             preferences,
@@ -195,23 +202,27 @@ impl Desk {
             marquee: None,
             batch: batch::Batch::default(),
             sharing: tether::Sharing::default(),
-            api: api::Api::default(),
+            api,
+            presets: presets::Panel::default(),
+            tool: None,
         }
     }
 
     fn save(&mut self) {
-        if let Ok(data) = serde_json::to_vec_pretty(&self.preferences) {
-            let folder = engine::data_dir();
-            let staged = folder.join(format!("preferences-{}.tmp", std::process::id()));
-            let result = fs::write(&staged, data)
-                .and_then(|_| fs::rename(&staged, folder.join("preferences.json")));
-            if let Err(error) = result {
-                self.status = trf!(
-                    "설정 저장 실패 · {error}",
-                    "Could not save settings · {error}"
-                );
-            }
+        if let Err(error) = self.write_preferences() {
+            self.status = trf!(
+                "설정 저장 실패 · {error}",
+                "Could not save settings · {error}"
+            );
         }
+    }
+
+    fn write_preferences(&self) -> std::io::Result<()> {
+        let data = serde_json::to_vec_pretty(&self.preferences)?;
+        let folder = engine::data_dir();
+        fs::create_dir_all(&folder)?;
+        let staged = folder.join(format!("preferences-{}.tmp", std::process::id()));
+        fs::write(&staged, data).and_then(|_| fs::rename(&staged, folder.join("preferences.json")))
     }
 
     fn label(&self, id: &str) -> String {
@@ -663,8 +674,10 @@ impl Desk {
             )
         });
         if let Some((origin, additive)) = start {
-            self.marquee = (!ui.memory(|memory| memory.any_popup_open()) && clip.contains(origin))
-                .then_some((origin, additive));
+            let on_grid = ui.ctx().layer_id_at(origin) == Some(ui.layer_id());
+            self.marquee =
+                (on_grid && !ui.memory(|memory| memory.any_popup_open()) && clip.contains(origin))
+                    .then_some((origin, additive));
         }
         if let (Some((origin, additive)), Some(cursor)) = (self.marquee, end.or(cursor)) {
             let region = egui::Rect::from_two_pos(origin, cursor).intersect(clip);
@@ -721,34 +734,73 @@ impl Desk {
     }
 
     fn rail(&mut self, ui: &mut Ui) {
-        ui.set_min_width(268.);
-        ui.set_max_width(268.);
+        use desk_ui::{card, heading, MUTED};
+
+        ui.set_width(306.);
         ui.horizontal(|ui| {
-            ui.heading(tr!("컨트롤", "Controls"));
+            ui.label(RichText::new(tr!("컨트롤", "Controls")).size(24.).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
                     RichText::new(trf!("{}대 선택", "{} selected", self.ready().len()))
-                        .small()
-                        .weak(),
+                        .color(MUTED),
                 );
             });
         });
-        ui.add_space(10.);
+        ui.add_space(4.);
+        egui::ScrollArea::vertical()
+            .id_salt("control-rail")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                card().show(ui, |ui| self.rail_controls(ui));
+                card().show(ui, |ui| {
+                    heading(ui, tr!("도구", "Tools"));
+                    ui.columns(2, |columns| {
+                        self.preset_button(&mut columns[0]);
+                        self.api_button(&mut columns[1]);
+                    });
+                    self.internet_button(ui);
+                });
+                card().show(ui, |ui| self.rail_mirroring(ui));
+                card().show(ui, |ui| self.rail_devices(ui));
+            });
+    }
+
+    fn rail_controls(&mut self, ui: &mut Ui) {
+        use desk_ui::{control, filled, heading};
+
         let ready = self.ready();
-        if primary(
-            ui,
-            tr!("선택 화면 열기", "Open selected mirrors"),
-            !ready.is_empty(),
-        ) {
+        heading(ui, tr!("기기 조작", "Device control"));
+        if ui
+            .add_enabled(
+                !ready.is_empty(),
+                filled(tr!("선택 화면 열기", "Open selected screens"))
+                    .min_size(Vec2::new(ui.available_width(), 39.)),
+            )
+            .clicked()
+        {
             self.open_devices(ui.ctx(), false);
         }
-        ui.horizontal(|ui| {
+        let batch_count = self.batch_targets().len();
+        if ui
+            .add_enabled(
+                batch_count >= 2,
+                control(trf!(
+                    "동시 조작 · {batch_count}대",
+                    "Batch control · {batch_count} devices"
+                ))
+                .min_size(Vec2::new(ui.available_width(), 35.)),
+            )
+            .clicked()
+        {
+            self.open_batch(ui.ctx());
+        }
+        ui.horizontal_wrapped(|ui| {
             let active = self
                 .selection
                 .iter()
                 .any(|id| self.mirrors.contains_key(id));
             if ui
-                .add_enabled(active, egui::Button::new(tr!("화면 닫기", "Close mirrors")))
+                .add_enabled(active, control(tr!("화면 닫기", "Close screens")))
                 .clicked()
             {
                 for id in &self.selection {
@@ -758,224 +810,234 @@ impl Desk {
                 }
             }
             if ui
-                .add_enabled(
-                    ready.len() == 1,
-                    egui::Button::new(tr!("기기 조작", "Device tools")),
-                )
+                .add_enabled(ready.len() == 1, control(tr!("개별 도구", "Device tools")))
                 .clicked()
             {
                 self.open_panel(ui.ctx(), &ready[0].id);
             }
-            if ui.button(tr!("녹화 폴더", "Recordings")).clicked() {
+            if ui.add(control(tr!("녹화 폴더", "Recordings"))).clicked() {
                 let path = recordings();
                 let _ = fs::create_dir_all(&path);
                 let _ = std::process::Command::new("explorer.exe").arg(path).spawn();
             }
         });
-        let batch_count = self.batch_targets().len();
-        if primary(
-            ui,
-            &trf!(
-                "동시 조작 · {batch_count}대",
-                "Batch Control · {batch_count} devices"
-            ),
-            batch_count >= 2,
-        ) {
-            self.open_batch(ui.ctx());
-        }
-        self.internet_button(ui);
-        self.api_button(ui);
-        ui.separator();
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.heading(tr!("미러링", "Mirroring"));
-                ui.horizontal(|ui| {
-                    let previous = self.preferences.size_mode.clone();
-                    combo(
-                        ui,
-                        "window-mode",
-                        &mut self.preferences.size_mode,
-                        &[
-                            ("자동", tr!("자동", "Auto")),
-                            ("대형", tr!("대형", "Large")),
-                            ("소형", tr!("소형", "Small")),
-                        ],
-                    );
-                    if previous != self.preferences.size_mode {
-                        self.save();
-                    }
-                    egui::ComboBox::from_id_salt("quality")
-                        .selected_text(QUALITIES[self.quality].0)
-                        .show_ui(ui, |ui| {
-                            for (index, options) in QUALITIES.iter().enumerate() {
-                                ui.selectable_value(&mut self.quality, index, options.0);
-                            }
-                        });
-                });
-                let settings = &mut self.preferences.windows;
-                let mut changed = false;
-                for (label, value, range, step) in [
-                    (
-                        tr!("대형 창 너비", "Large window width"),
-                        &mut settings.large_window,
-                        300..=850,
-                        10.,
-                    ),
-                    (
-                        tr!("소형 창 너비", "Small window width"),
-                        &mut settings.small_window,
-                        160..=480,
-                        10.,
-                    ),
-                    (
-                        tr!("소형 영상 해상도", "Small video resolution"),
-                        &mut settings.small_quality,
-                        360..=1440,
-                        120.,
-                    ),
-                    (
-                        tr!("소형 영상 최대 FPS", "Small video max FPS"),
-                        &mut settings.small_fps,
-                        10..=60,
-                        5.,
-                    ),
+        let connected: Vec<_> = ready
+            .into_iter()
+            .filter(|device| {
+                self.mirrors
+                    .get(&device.id)
+                    .is_some_and(|mirror| mirror.controlled)
+            })
+            .collect();
+        if !connected.is_empty() {
+            ui.horizontal(|ui| {
+                for (label, key) in [
+                    (tr!("홈", "Home"), "KEYCODE_HOME"),
+                    (tr!("뒤로", "Back"), "KEYCODE_BACK"),
                 ] {
-                    ui.horizontal(|ui| {
-                        ui.add_sized([132., 22.], egui::Label::new(label));
-                        changed |= ui
-                            .add(egui::Slider::new(value, range).step_by(step))
-                            .changed();
-                    });
-                }
-                if changed {
-                    self.save();
-                }
-                ui.horizontal(|ui| {
-                    if ui
-                        .checkbox(&mut self.previews, tr!("미리보기", "Previews"))
-                        .changed()
-                    {
-                        self.generation += 1;
-                        self.images.clear();
-                        self.preview_times.clear();
-                    }
-                    ui.checkbox(
-                        &mut self.control,
-                        tr!("마우스·키보드", "Mouse and keyboard"),
-                    );
-                });
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.audio, tr!("기기 소리", "Device audio"));
-                    ui.checkbox(&mut self.record, tr!("화면 녹화", "Record screen"));
-                });
-                ui.separator();
-                ui.heading(tr!("기기 및 태그", "Devices and tags"));
-                ui.horizontal(|ui| {
-                    combo(
-                        ui,
-                        "transport-filter",
-                        &mut self.transport,
-                        &[
-                            ("전체", tr!("전체", "All")),
-                            ("USB", "USB"),
-                            ("Wi-Fi", "Wi-Fi"),
-                            ("접근 가능", tr!("접근 가능", "Connected")),
-                        ],
-                    );
-                    let tags: BTreeSet<String> = self
-                        .preferences
-                        .devices
-                        .values()
-                        .map(|note| note.tag.clone())
-                        .filter(|tag| !tag.is_empty())
-                        .collect();
-                    let options: Vec<(&str, &str)> = [
-                        ("모든 태그", tr!("모든 태그", "All tags")),
-                        ("태그 없음", tr!("태그 없음", "Untagged")),
-                    ]
-                    .into_iter()
-                    .chain(tags.iter().map(|tag| (tag.as_str(), tag.as_str())))
-                    .collect();
-                    combo(ui, "tag-filter", &mut self.tag, &options);
-                });
-                let ids = self.filters();
-                ui.horizontal(|ui| {
-                    if ui
-                        .button(tr!("연결 기기 선택", "Select connected"))
-                        .clicked()
-                    {
-                        self.selection = ids
-                            .iter()
-                            .filter(|id| self.devices.get(*id).is_some_and(Device::ready))
-                            .cloned()
-                            .collect();
-                        self.panel = panel::Panel::default();
-                    }
-                    if ui
-                        .add_enabled(
-                            !self.selection.is_empty(),
-                            egui::Button::new(tr!("태그 지정", "Assign tag")),
-                        )
-                        .clicked()
-                    {
-                        self.tag_edit = Some(String::new());
-                    }
-                });
-                ui.checkbox(
-                    &mut self.only_selected,
-                    tr!("선택한 기기만 표시", "Show selected only"),
-                );
-                for row in ids.chunks(6) {
-                    ui.horizontal(|ui| {
-                        for id in row {
-                            let number = self.preferences.devices[id].number;
-                            let selected = self.selection.contains(id);
-                            if ui
-                                .add_sized(
-                                    [34., 26.],
-                                    egui::Button::new(format!("{number:02}")).selected(selected),
-                                )
-                                .clicked()
-                            {
-                                let modifiers = ui.input(|input| input.modifiers);
-                                self.select(ui.ctx(), id, modifiers.ctrl, modifiers.shift);
-                            }
-                        }
-                    });
-                }
-                ui.add_space(6.);
-                ui.horizontal(|ui| {
-                    let connected: Vec<_> = self
-                        .ready()
-                        .into_iter()
-                        .filter(|device| {
-                            self.mirrors
-                                .get(&device.id)
-                                .is_some_and(|mirror| mirror.controlled)
-                        })
-                        .collect();
-                    for (label, key) in [
-                        (tr!("홈", "Home"), "KEYCODE_HOME"),
-                        (tr!("뒤로", "Back"), "KEYCODE_BACK"),
-                    ] {
-                        if ui
-                            .add_enabled(!connected.is_empty(), egui::Button::new(label))
-                            .clicked()
-                        {
-                            for device in &connected {
-                                self.run_action(
-                                    ui.ctx(),
-                                    device,
-                                    label,
-                                    &["shell", "input", "keyevent", key],
-                                    None,
-                                );
-                            }
+                    if ui.add(control(label)).clicked() {
+                        for device in &connected {
+                            self.run_action(
+                                ui.ctx(),
+                                device,
+                                label,
+                                &["shell", "input", "keyevent", key],
+                                None,
+                            );
                         }
                     }
-                });
+                }
             });
+        }
+    }
+
+    fn rail_mirroring(&mut self, ui: &mut Ui) {
+        desk_ui::heading(ui, tr!("미러링", "Mirroring"));
+        ui.horizontal_wrapped(|ui| {
+            let previous = self.preferences.size_mode.clone();
+            combo(
+                ui,
+                "window-mode",
+                &mut self.preferences.size_mode,
+                &[
+                    ("자동", tr!("자동", "Auto")),
+                    ("대형", tr!("대형", "Large")),
+                    ("소형", tr!("소형", "Small")),
+                ],
+            );
+            if previous != self.preferences.size_mode {
+                self.save();
+            }
+            egui::ComboBox::from_id_salt("quality")
+                .width(145.)
+                .selected_text(QUALITIES[self.quality].0)
+                .show_ui(ui, |ui| {
+                    for (index, options) in QUALITIES.iter().enumerate() {
+                        ui.selectable_value(&mut self.quality, index, options.0);
+                    }
+                });
+        });
+        ui.add_space(3.);
+        let settings = &mut self.preferences.windows;
+        let mut changed = false;
+        ui.scope(|ui| {
+            ui.spacing_mut().slider_width = 88.;
+            ui.spacing_mut().interact_size.y = 24.;
+            ui.spacing_mut().item_spacing.y = 4.;
+            ui.visuals_mut().widgets.inactive.bg_fill = Color32::from_gray(58);
+            ui.visuals_mut().selection.bg_fill = Color32::from_gray(168);
+            for (label, value, range, step) in [
+                (
+                    tr!("대형 창 너비", "Large window width"),
+                    &mut settings.large_window,
+                    300..=850,
+                    10.,
+                ),
+                (
+                    tr!("소형 창 너비", "Small window width"),
+                    &mut settings.small_window,
+                    160..=480,
+                    10.,
+                ),
+                (
+                    tr!("미리보기 해상도", "Preview resolution"),
+                    &mut settings.small_quality,
+                    360..=1440,
+                    120.,
+                ),
+                (
+                    tr!("미리보기 최대 FPS", "Preview max FPS"),
+                    &mut settings.small_fps,
+                    10..=60,
+                    5.,
+                ),
+            ] {
+                ui.horizontal(|ui| {
+                    ui.allocate_ui_with_layout(
+                        Vec2::new(117., 24.),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.set_width(117.);
+                            ui.add(egui::Label::new(label).truncate())
+                                .on_hover_text(label);
+                        },
+                    );
+                    changed |= ui
+                        .add(
+                            egui::Slider::new(value, range)
+                                .step_by(step)
+                                .trailing_fill(true),
+                        )
+                        .changed();
+                });
+            }
+        });
+        if changed {
+            self.save();
+        }
+        ui.separator();
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .checkbox(&mut self.previews, tr!("미리보기", "Previews"))
+                .changed()
+            {
+                self.generation += 1;
+                self.images.clear();
+                self.preview_times.clear();
+            }
+            ui.checkbox(
+                &mut self.control,
+                tr!("마우스·키보드", "Mouse and keyboard"),
+            );
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(&mut self.audio, tr!("기기 소리", "Device audio"));
+            ui.checkbox(&mut self.record, tr!("화면 녹화", "Record screen"));
+        });
+    }
+
+    fn rail_devices(&mut self, ui: &mut Ui) {
+        use desk_ui::{control, filled, heading, MUTED};
+        heading(ui, tr!("기기 및 태그", "Devices and tags"));
+        ui.horizontal_wrapped(|ui| {
+            combo(
+                ui,
+                "transport-filter",
+                &mut self.transport,
+                &[
+                    ("전체", tr!("전체", "All")),
+                    ("USB", "USB"),
+                    ("Wi-Fi", "Wi-Fi"),
+                    ("접근 가능", tr!("접근 가능", "Connected")),
+                ],
+            );
+            let tags: BTreeSet<_> = self
+                .preferences
+                .devices
+                .values()
+                .map(|note| note.tag.as_str())
+                .filter(|tag| !tag.is_empty())
+                .collect();
+            let options: Vec<_> = [
+                ("모든 태그", tr!("모든 태그", "All tags")),
+                ("태그 없음", tr!("태그 없음", "Untagged")),
+            ]
+            .into_iter()
+            .chain(tags.into_iter().map(|tag| (tag, tag)))
+            .collect();
+            combo(ui, "tag-filter", &mut self.tag, &options);
+        });
+        let ids = self.filters();
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .add(control(tr!("연결 기기 선택", "Select connected")))
+                .clicked()
+            {
+                self.selection = ids
+                    .iter()
+                    .filter(|id| self.devices.get(*id).is_some_and(Device::ready))
+                    .cloned()
+                    .collect();
+                self.panel = panel::Panel::default();
+            }
+            if ui
+                .add_enabled(
+                    !self.selection.is_empty(),
+                    control(tr!("태그 지정", "Assign tag")),
+                )
+                .clicked()
+            {
+                self.tag_edit = Some(String::new());
+            }
+        });
+        ui.checkbox(
+            &mut self.only_selected,
+            tr!("선택한 기기만 표시", "Show selected only"),
+        );
+        for row in ids.chunks(6) {
+            ui.horizontal(|ui| {
+                for id in row {
+                    let number = self.preferences.devices[id].number;
+                    let connected = self.devices.get(id).is_some_and(Device::ready);
+                    let label = format!("{number:02}");
+                    let button = if self.selection.contains(id) {
+                        filled(label)
+                    } else if connected {
+                        control(RichText::new(label).monospace())
+                    } else {
+                        control(RichText::new(label).monospace().color(MUTED))
+                    };
+                    if ui
+                        .add(button.min_size(Vec2::new(35., 34.)))
+                        .on_hover_text(self.label(id))
+                        .clicked()
+                    {
+                        let modifiers = ui.input(|input| input.modifiers);
+                        self.select(ui.ctx(), id, modifiers.ctrl, modifiers.shift);
+                    }
+                }
+            });
+        }
     }
 
     fn open_devices(&mut self, ctx: &Context, focus: bool) {
@@ -1140,9 +1202,14 @@ impl eframe::App for Desk {
         ctx.request_repaint_after(Duration::from_millis(250));
         egui::SidePanel::right("control")
             .resizable(false)
-            .frame(Frame::new().fill(PAPER).inner_margin(15))
+            .frame(
+                Frame::new()
+                    .fill(desk_ui::WORKSPACE)
+                    .stroke(Stroke::new(1_f32, desk_ui::BORDER))
+                    .inner_margin(14),
+            )
             .show(ctx, |ui| {
-                ui.visuals_mut().clone_from(&monochrome(true));
+                desk_ui::style(ui);
                 self.rail(ui);
             });
         egui::TopBottomPanel::top("heading")
@@ -1232,6 +1299,7 @@ impl eframe::App for Desk {
         self.render_batch(ctx);
         self.internet_window(ctx);
         self.api_window(ctx);
+        self.preset_window(ctx);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

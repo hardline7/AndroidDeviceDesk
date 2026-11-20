@@ -2,6 +2,7 @@ use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::path::Path;
 
 use super::*;
+use crate::desk_ui::{self, card, control, filled, Tool};
 
 const ARCHIVE: &[u8] = include_bytes!("../../vendor/gnirehtet-rust-win64-v2.5.1.zip");
 const LICENSE: &str = include_str!("../../third-party/gnirehtet-LICENSE.txt");
@@ -29,7 +30,6 @@ pub struct Sharing {
     busy: bool,
     checking: bool,
     check_at: Option<Instant>,
-    open: bool,
     quit_requested: bool,
     message: String,
 }
@@ -56,7 +56,7 @@ impl Desk {
             .values()
             .filter(|(_, running)| *running)
             .count();
-        let label = if count == 0 {
+        let label: String = if count == 0 {
             tr!("USB 인터넷 공유", "USB Internet sharing").into()
         } else {
             trf!(
@@ -64,123 +64,163 @@ impl Desk {
                 "USB Internet sharing · {count}"
             )
         };
-        if ui
-            .add_sized([ui.available_width(), 24.], egui::Button::new(label))
-            .clicked()
-        {
-            self.sharing.open = true;
+        if desk_ui::tool_button(ui, &label) {
+            self.tool = Some(Tool::Internet);
         }
     }
 
     pub fn internet_window(&mut self, ctx: &Context) {
-        if !self.sharing.open {
+        if self.tool != Some(Tool::Internet) {
             return;
         }
-        let mut open = true;
         let targets: Vec<_> = self.ready().into_iter().filter(usb_device).collect();
-        egui::Window::new(tr!("USB 인터넷 공유", "USB Internet sharing"))
-            .open(&mut open)
-            .resizable(false)
-            .collapsible(false)
-            .default_width(345.)
-            .show(ctx, |ui| {
-                ui.label(tr!(
-                    "USB로 연결된 Android 기기가 이 PC의 인터넷을 사용합니다.",
-                    "Share this PC’s Internet connection with Android devices connected over USB."
-                ));
-                ui.label(tr!(
-                    "처음에는 각 폰에서 Gnirehtet VPN 연결 요청을 승인하세요.",
-                    "On first use, approve the Gnirehtet VPN request on each device."
-                ));
-                ui.separator();
-                ui.label(trf!(
-                    "선택한 USB 기기 {}대",
-                    "{} USB devices selected",
-                    targets.len()
-                ));
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(
-                            !self.sharing.busy && !targets.is_empty(),
-                            egui::Button::new(tr!("선택 기기에 켜기", "Enable for selected")),
-                        )
-                        .clicked()
-                    {
-                        self.change_sharing(ctx, targets.clone(), true);
-                    }
+        let closed = desk_ui::window(
+            ctx,
+            Tool::Internet,
+            tr!("USB 인터넷 공유", "USB Internet sharing"),
+            [550., 385.],
+            |ui| {
+                let running = self
+                    .sharing
+                    .devices
+                    .values()
+                    .filter(|(_, running)| *running)
+                    .count();
+                card().show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.horizontal_wrapped(|ui| {
+                        desk_ui::heading(
+                            ui,
+                            &trf!(
+                                "선택한 USB 기기 {}대",
+                                "{} USB devices selected",
+                                targets.len()
+                            ),
+                        );
+                        ui.label(
+                            RichText::new(trf!("· 공유 중 {running}대", "· Sharing on {running}"))
+                                .color(desk_ui::MUTED),
+                        );
+                    });
+                    desk_ui::note(
+                        ui,
+                        if targets.is_empty() {
+                            tr!(
+                                "기기 격자에서 USB로 연결된 기기를 선택하세요.",
+                                "Select devices connected over USB in the grid."
+                            )
+                        } else {
+                            tr!(
+                                "첫 연결 때 각 기기에서 Gnirehtet VPN 요청을 승인하세요.",
+                                "Approve the Gnirehtet VPN request on each device the first time."
+                            )
+                        },
+                    );
+                    ui.add_space(4.);
                     let to_stop: Vec<_> = targets
                         .iter()
                         .filter(|device| self.sharing.devices.contains_key(&device.id))
                         .cloned()
                         .collect();
-                    if ui
-                        .add_enabled(
-                            !self.sharing.busy && !to_stop.is_empty(),
-                            egui::Button::new(tr!("선택 기기에 끄기", "Disable for selected")),
-                        )
-                        .clicked()
-                    {
-                        self.change_sharing(ctx, to_stop, false);
-                    }
-                });
-                if ui
-                    .add_enabled(
-                        !self.sharing.busy && !self.sharing.devices.is_empty(),
-                        egui::Button::new(tr!("모두 끄기", "Disable all")),
-                    )
-                    .clicked()
-                {
-                    let devices = self
-                        .sharing
-                        .devices
-                        .values()
-                        .map(|(device, _)| {
-                            self.devices
-                                .get(&device.id)
-                                .filter(|current| usb_device(current))
-                                .cloned()
-                                .unwrap_or_else(|| Device {
-                                    state: "offline".into(),
-                                    ..device.clone()
-                                })
-                        })
-                        .collect();
-                    self.change_sharing(ctx, devices, false);
-                }
-                if !self.sharing.message.is_empty() {
-                    ui.label(&self.sharing.message);
-                }
-                egui::ScrollArea::vertical()
-                    .max_height(230.)
-                    .show(ui, |ui| {
-                        let mut sessions: Vec<_> = self.sharing.devices.values().collect();
-                        sessions.sort_by_key(|(device, _)| {
-                            self.preferences
-                                .devices
-                                .get(&device.id)
-                                .map(|note| note.number)
-                        });
-                        for (device, running) in sessions {
-                            let label = if self.preferences.devices.contains_key(&device.id) {
-                                self.label(&device.id)
-                            } else {
-                                device.model.clone()
-                            };
-                            let status = if !self.devices.get(&device.id).is_some_and(usb_device) {
-                                tr!("USB 연결 끊김", "USB disconnected")
-                            } else if *running {
-                                tr!("VPN 실행 중", "VPN running")
-                            } else {
-                                tr!(
-                                    "VPN 승인 또는 재연결 대기",
-                                    "Waiting for VPN approval or reconnection"
-                                )
-                            };
-                            ui.label(format!("{label} · {status}"));
+                    ui.horizontal_wrapped(|ui| {
+                        if ui
+                            .add_enabled(
+                                !self.sharing.busy && !targets.is_empty(),
+                                filled(tr!("선택 기기에 켜기", "Enable for selected")),
+                            )
+                            .clicked()
+                        {
+                            self.change_sharing(ctx, targets.clone(), true);
+                        }
+                        if ui
+                            .add_enabled(
+                                !self.sharing.busy && !to_stop.is_empty(),
+                                control(tr!("선택 기기에 끄기", "Disable for selected")),
+                            )
+                            .clicked()
+                        {
+                            self.change_sharing(ctx, to_stop, false);
                         }
                     });
-            });
-        self.sharing.open = open;
+                });
+                if !self.sharing.devices.is_empty() {
+                    card().show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            desk_ui::heading(ui, tr!("공유 세션", "Sharing sessions"));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui
+                                        .add_enabled(
+                                            !self.sharing.busy,
+                                            control(tr!("모두 끄기", "Disable all")),
+                                        )
+                                        .clicked()
+                                    {
+                                        let devices = self
+                                            .sharing
+                                            .devices
+                                            .values()
+                                            .map(|(device, _)| {
+                                                self.devices
+                                                    .get(&device.id)
+                                                    .filter(|current| usb_device(current))
+                                                    .cloned()
+                                                    .unwrap_or_else(|| Device {
+                                                        state: "offline".into(),
+                                                        ..device.clone()
+                                                    })
+                                            })
+                                            .collect();
+                                        self.change_sharing(ctx, devices, false);
+                                    }
+                                },
+                            );
+                        });
+                        egui::ScrollArea::vertical()
+                            .id_salt("sharing-sessions")
+                            .max_height(215.)
+                            .show(ui, |ui| {
+                                let mut sessions: Vec<_> = self.sharing.devices.values().collect();
+                                sessions.sort_by_key(|(device, _)| {
+                                    self.preferences
+                                        .devices
+                                        .get(&device.id)
+                                        .map(|note| note.number)
+                                });
+                                for (device, running) in sessions {
+                                    let label = if self.preferences.devices.contains_key(&device.id)
+                                    {
+                                        self.label(&device.id)
+                                    } else {
+                                        device.model.clone()
+                                    };
+                                    let status =
+                                        if !self.devices.get(&device.id).is_some_and(usb_device) {
+                                            tr!("USB 연결 끊김", "USB disconnected")
+                                        } else if *running {
+                                            tr!("VPN 실행 중", "VPN running")
+                                        } else {
+                                            tr!(
+                                                "VPN 승인 또는 재연결 대기",
+                                                "Waiting for VPN approval or reconnection"
+                                            )
+                                        };
+                                    ui.separator();
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.strong(label);
+                                        desk_ui::note(ui, status);
+                                    });
+                                }
+                            });
+                    });
+                }
+                desk_ui::message(ui, &self.sharing.message);
+            },
+        );
+        if closed {
+            self.tool = None;
+        }
     }
 
     fn change_sharing(&mut self, ctx: &Context, targets: Vec<Device>, enabling: bool) {

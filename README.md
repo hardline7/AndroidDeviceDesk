@@ -4,7 +4,7 @@
 
 **Android Device Desk는 Windows PC에서 여러 안드로이드 기기의 화면을 한눈에 보고 조작하는 데스크톱 앱입니다.** Windows 표시 언어가 한국어이면 한국어, 그 외에는 영어로 표시합니다. 기기 격자에서 폰을 드래그로 묶고, 대표 화면을 한 번 탭하거나 스와이프해 선택한 기기에 같은 입력을 전달할 수 있습니다. 한 대를 자세히 볼 때는 별도의 미러링 창과 기기 조작 패널을 엽니다.
 
-> [v0.2.0 Windows 릴리스](https://github.com/hardline7/AndroidDeviceDesk/releases/tag/v0.2.0)에 USB 인터넷 공유, 로컬 API, Windows 언어 감지, 드래그 후 동시 조작 창 자동 열림이 포함됩니다.
+> [v0.3.0 Windows 릴리스](https://github.com/hardline7/AndroidDeviceDesk/releases/tag/v0.3.0)에 작업 프리셋, 실패 기기 재실행, 새 컨트롤 패널과 도구 창이 포함됩니다.
 
 ## 실제 연결 화면
 
@@ -16,7 +16,8 @@ Windows에서 기기 데스크를 실행하고 USB로 연결한 Android 기기 �
 | :---: | :---: | :---: |
 | <a href="docs/screenshots/batch-control.png"><img src="docs/screenshots/batch-control.png" width="225" alt="실제 갤럭시 화면이 표시된 동시 조작 창"></a> | <a href="docs/screenshots/device-tools.png"><img src="docs/screenshots/device-tools.png" width="225" alt="선택한 갤럭시의 APK·캡처·파일 전송 도구"></a> | <a href="docs/screenshots/app-launcher.png"><img src="docs/screenshots/app-launcher.png" width="225" alt="갤럭시에서 조회한 앱 목록과 영어 앱 실행 패널"></a> |
 
-| USB 인터넷 공유 | 로컬 API |
+| USB 인터넷 공유 | 작업 프리셋 | 자주 쓰는 동작 순서를 저장하고, 선택한 기기나 태그 그룹에서 실행합니다. 실행 결과에서 실패한 기기만 재실행할 수 있습니다. |
+| 로컬 API |
 | :---: | :---: |
 | <a href="docs/screenshots/usb-internet.png"><img src="docs/screenshots/usb-internet.png" width="390" alt="USB로 연결된 갤럭시 3대를 선택한 인터넷 공유 창"></a> | <a href="docs/screenshots/local-api.png"><img src="docs/screenshots/local-api.png" width="390" alt="실행 중인 로컬 API의 주소와 엔드포인트"></a> |
 
@@ -77,6 +78,15 @@ Get-FileHash .\AndroidDeviceDesk.exe -Algorithm SHA256
 4. 폰의 Wi-Fi와 모바일 데이터가 꺼진 상태에서도 브라우저에서 웹사이트를 열 수 있습니다. 종료하려면 **선택 기기에 끄기** 또는 **모두 끄기**를 사용합니다.
 
 PC와 USB 케이블이 연결돼 있고 기기 데스크가 실행 중이어야 합니다. Android의 VPN을 사용하므로 기존 VPN이 있는 기기에서는 전환이 필요할 수 있습니다. Gnirehtet은 IPv4 TCP·UDP를 전달합니다. USB를 뽑았다 다시 연결한 기기는 공유를 다시 켤 수 있습니다. [Gnirehtet 사용 안내](https://github.com/Genymobile/gnirehtet/tree/v2.5.1)
+
+## 작업 프리셋과 실패 기기 재실행
+
+1. 오른쪽 패널이나 **동시 조작** 창에서 **작업 프리셋 → 새 프리셋**을 누릅니다.
+2. 이름을 입력하고 사이트 열기, 앱 실행, 탭, 스와이프, 키 입력, 대기를 필요한 순서로 추가해 저장합니다.
+3. 격자에서 드래그로 고른 기기를 사용하거나 창에서 태그를 골라 대상과 대수를 확인한 뒤 실행합니다.
+4. **실행 결과**에서 기기별 완료 단계와 실패 이유를 확인합니다. **실패한 기기만 재실행**을 누르면 해당 기기에서 원래 작업이 첫 단계부터 실행됩니다.
+
+저장한 프리셋은 앱을 다시 열어도 남습니다. [로컬 API로 실행하고 재시도하기](docs/API.md#저장한-프리셋-실행-및-재시도--run-and-retry-saved-presets)
 
 ## 로컬 API 빠르게 시작하기
 

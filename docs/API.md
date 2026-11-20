@@ -11,13 +11,16 @@ In Device Desk, choose **Local API → Start server → Copy API token**. Send a
 | GET | `/v1/devices` | 기기 번호·이름·상태·제어 가능 여부 / Device number, name, connection state, and control availability |
 | GET | `/v1/devices/{number}/apps` | 실행 가능한 앱의 패키지와 컴포넌트 / Launchable Android packages and activity components |
 | POST | `/v1/actions` | 동작 목록 제출, HTTP 202와 `job_id` 반환 / Submit a plan and receive HTTP 202 with a `job_id` |
+| GET | `/v1/presets` | 저장한 프리셋 ID·이름·단계 수 / Saved preset IDs, names, and step counts |
+| POST | `/v1/presets/{id}/run` | 대상 기기에서 저장한 작업 실행 / Run a saved preset on the requested devices |
+| POST | `/v1/jobs/{job_id}/retry` | 실패한 기기에서만 첫 단계부터 재실행 / Replay from step one on failed devices only |
 | GET | `/v1/jobs/{job_id}` | 작업 상태와 기기별 완료 단계 조회 / Job status and per-device step results |
 
 ## 요청 형식 / Request format
 
-`Content-Type: application/json`을 사용합니다. `targets`는 앱에 표시된 번호 하나(`2`), 번호 목록(`[2, 5]`), 또는 연결된 제어 가능 기기 전체(`"all"`)입니다.
+`Content-Type: application/json`을 사용합니다. `targets`는 앱에 표시된 번호 하나(`2`), 번호 목록(`[2, 5]`), 연결된 제어 가능 기기 전체(`"all"`), 또는 기기 태그(`{"tag":"QA"}`)입니다.
 
-Set `Content-Type: application/json`. Use a single device number such as `2`, an array such as `[2, 5]`, or `"all"` for all currently connected and controllable devices.
+Set `Content-Type: application/json`. Use a single device number such as `2`, an array such as `[2, 5]`, `"all"` for all currently connected and controllable devices, or a tag object such as `{"tag":"QA"}`. Tags match exactly.
 
 ```json
 {
@@ -67,6 +70,27 @@ $job = Invoke-RestMethod "$base/v1/actions" -Method Post -Headers $headers -Cont
 Invoke-RestMethod "$base/v1/jobs/$($job.job_id)" -Headers $headers
 ```
 
-각 기기에서 단계는 순서대로 실행됩니다. 한 기기에서 단계가 실패하면 해당 기기의 후속 단계는 중단되고 다른 기기의 작업은 계속됩니다. 작업이 끝나면 `succeeded`, `partial_failure`, `failed` 중 하나와 기기별 `completed_steps`가 반환됩니다. 실패한 기기의 `failed_step`은 1부터 시작합니다. 한 번에 한 작업을 받고, 실행 중에 새 작업을 보내면 HTTP 409를 반환합니다.
+각 기기에서 단계는 순서대로 실행됩니다. 한 기기에서 단계가 실패하면 해당 기기의 후속 단계는 중단되고 다른 기기의 작업은 계속됩니다. 작업이 끝나면 `succeeded`, `partial_failure`, `failed` 중 하나와 기기별 `completed_steps`가 반환됩니다. 실패한 기기의 `failed_step`은 1부터 시작합니다. 앱과 API는 같은 실행 엔진을 사용합니다. 한 작업이 실행 중일 때 새 작업을 보내면 HTTP 409를 반환합니다.
 
-Steps run in order on each device. A failure stops the remaining steps on that device while other devices continue. Completion returns `succeeded`, `partial_failure`, or `failed` and per-device `completed_steps`. A failed device includes a one-based `failed_step`. The server accepts one job at a time and returns HTTP 409 if another job is running.
+Steps run in order on each device. A failure stops the remaining steps on that device while other devices continue. Completion returns `succeeded`, `partial_failure`, or `failed` and per-device `completed_steps`. A failed device includes a one-based `failed_step`. The app and API share one job runner. Submitting a job while another is running returns HTTP 409.
+
+## 저장한 프리셋 실행 및 재시도 / Run and retry saved presets
+
+**작업 프리셋** 화면에서 동작을 저장한 뒤, `GET /v1/presets`로 ID를 조회합니다. `/run` 요청 본문에 `targets`를 넣으면 기존 작업과 같은 HTTP 202 응답을 받습니다. 태그가 일치하는 기기 중 연결되어 있고 제어가 가능한 기기가 실행 대상입니다.
+
+Create a preset in **Job presets**, then look up its ID with `GET /v1/presets`. Send `targets` in the `/run` body to receive the standard HTTP 202 job response. For a tag, only connected controllable devices with an exact match are included.
+
+```powershell
+Invoke-RestMethod "$base/v1/presets" -Headers $headers
+$body = @{ targets = @{ tag = 'QA' } } | ConvertTo-Json
+$job = Invoke-RestMethod "$base/v1/presets/1/run" -Method Post -Headers $headers -ContentType 'application/json' -Body $body
+Invoke-RestMethod "$base/v1/jobs/$($job.job_id)" -Headers $headers
+
+# Run this after the original job finishes with failures.
+$retry = Invoke-RestMethod "$base/v1/jobs/$($job.job_id)/retry" -Method Post -Headers $headers
+Invoke-RestMethod "$base/v1/jobs/$($retry.job_id)" -Headers $headers
+```
+
+재시도 요청에는 본문이 필요 없습니다. 실패했던 동일 기기에서 원래 단계를 첫 단계부터 실행하고 새 작업 ID를 반환합니다. 실패한 기기 중 제어 가능한 기기가 한 대도 없으면 HTTP 409를 반환합니다. 작업 기록은 앱을 닫기 전까지 최근 32개를 볼 수 있고, 저장한 프리셋은 앱을 다시 열어도 남습니다.
+
+Retry takes an empty body. It replays the original steps from step one on the same devices that failed and returns a new job ID. If none of the failed devices is available for control, the API returns HTTP 409. The app keeps the latest 32 jobs for the current session. Saved presets persist across restarts.

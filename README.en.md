@@ -4,7 +4,7 @@
 
 **Android Device Desk is a Windows desktop app for mirroring and controlling multiple Android devices.** Drag across the device grid to select several phones, then use a representative screen to send the same tap or swipe to the group. Open a separate full-size mirror and control panel when you need to work on one device. The interface follows the Windows display language and uses English for all display languages other than Korean.
 
-> [Windows release v0.2.0](https://github.com/hardline7/AndroidDeviceDesk/releases/tag/v0.2.0) includes USB Internet sharing, the local API, Windows display-language detection, and automatic batch-window opening.
+> [Windows release v0.3.0](https://github.com/hardline7/AndroidDeviceDesk/releases/tag/v0.3.0) adds job presets, retries for failed devices, and redesigned controls and tool windows.
 
 ## Screenshots from connected devices
 
@@ -16,7 +16,8 @@ Captured in Device Desk on Windows with Android devices connected over USB. Sele
 | :---: | :---: | :---: |
 | <a href="docs/screenshots/batch-control.png"><img src="docs/screenshots/batch-control.png" width="225" alt="Batch controls with a live Galaxy screen"></a> | <a href="docs/screenshots/device-tools.png"><img src="docs/screenshots/device-tools.png" width="225" alt="Galaxy device tools for APKs, screenshots, and files"></a> | <a href="docs/screenshots/app-launcher.png"><img src="docs/screenshots/app-launcher.png" width="225" alt="English app launcher showing apps queried from a Galaxy phone"></a> |
 
-| USB Internet sharing | Local API |
+| USB Internet sharing | Job presets | Save a sequence of actions and run it on selected devices or a tag group. Retry only the failed devices from the run history. |
+| Local API |
 | :---: | :---: |
 | <a href="docs/screenshots/usb-internet.png"><img src="docs/screenshots/usb-internet.png" width="390" alt="Internet sharing panel with three USB-connected Galaxy phones selected"></a> | <a href="docs/screenshots/local-api.png"><img src="docs/screenshots/local-api.png" width="390" alt="Running local API showing its address and endpoints"></a> |
 
@@ -77,6 +78,15 @@ Tap and swipe locations are relative to the representative image and are mapped 
 4. With Wi-Fi and mobile data disabled, open a website in the phone’s browser. Choose **Disable for selected** or **Disable all** to end sharing.
 
 Keep Device Desk running and the USB cable connected. Sharing uses Android’s VPN facility, so an existing VPN may need to be switched. Gnirehtet relays IPv4 TCP and UDP. If a device is unplugged, reconnect it and enable sharing again. [Gnirehtet documentation](https://github.com/Genymobile/gnirehtet/tree/v2.5.1)
+
+## Save presets and retry failed devices
+
+1. Open **Job presets → New preset** from the main sidebar or the **Batch Control** window.
+2. Name the preset, then add website, app, tap, swipe, key, or wait steps in the desired order and save.
+3. Use the devices selected in the grid or choose a tag. Review the device count and run the preset.
+4. Open **Run history** to see completed steps and error details for each device. **Retry failed devices** reruns the original job from step one on those devices.
+
+Saved presets persist across app restarts. [Run and retry through the local API](docs/API.md#저장한-프리셋-실행-및-재시도--run-and-retry-saved-presets)
 
 ## Get started with the local API
 

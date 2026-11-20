@@ -5,58 +5,66 @@ use std::sync::{Arc, Mutex, RwLock};
 use serde_json::{json, Value};
 use tiny_http::{Header, Method, Request, Response, Server};
 
+use crate::desk_ui::{self, card, control, filled, Tool};
+use crate::presets::{Catalog, Preset};
+
 use super::*;
 
 const PORT: u16 = 17653;
 const MAX_BODY: usize = 32 * 1024;
-const MAX_STEPS: usize = 32;
+pub const MAX_STEPS: usize = 32;
 const HISTORY: usize = 32;
 const URL: &str = "http://127.0.0.1:17653";
 
-#[derive(Default)]
 pub struct Api {
-    open: bool,
+    pub core: Arc<Core>,
     server: Option<Running>,
     message: String,
 }
 
 struct Running {
     server: Arc<Server>,
-    core: Arc<Core>,
+    stopped: Arc<AtomicBool>,
     token: String,
 }
 
 impl Drop for Running {
     fn drop(&mut self) {
-        self.core.stopped.store(true, Ordering::Release);
+        self.stopped.store(true, Ordering::Release);
         self.server.unblock();
     }
 }
 
-struct Core {
+pub struct Core {
     root: PathBuf,
     devices: RwLock<BTreeMap<u32, Endpoint>>,
     jobs: Mutex<Jobs>,
-    stopped: AtomicBool,
+    presets: RwLock<Catalog>,
+    exiting: AtomicBool,
 }
 
 #[derive(Clone)]
-struct Endpoint {
-    number: u32,
+pub struct Endpoint {
+    pub number: u32,
+    pub tag: String,
     name: String,
     device: Device,
     controllable: bool,
 }
 
 impl Endpoint {
-    fn can_run(&self) -> bool {
+    pub fn can_run(&self) -> bool {
         self.device.ready() && self.controllable
+    }
+
+    pub fn label(&self) -> &str {
+        &self.name
     }
 
     fn public(&self) -> Value {
         json!({
             "number": self.number, "name": self.name, "model": self.device.model,
-            "transport": self.device.transport, "state": self.device.state,
+            "transport": self.device.transport, "state": self.device.state, "tag": self.tag,
             "controllable": self.can_run(),
         })
     }
@@ -66,7 +74,7 @@ impl Endpoint {
 struct Jobs {
     next: u64,
     busy: bool,
-    history: BTreeMap<u64, Value>,
+    history: BTreeMap<u64, Job>,
 }
 
 #[derive(Deserialize)]
@@ -76,19 +84,26 @@ struct Plan {
     steps: Vec<Step>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(untagged)]
-enum Targets {
+pub enum Targets {
+    Tagged(TagTarget),
     Group(String),
     One(u32),
     Many(Vec<u32>),
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TagTarget {
+    pub tag: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
-enum Step {
+pub enum Step {
     OpenUrl {
-        url: url::Url,
+        url: String,
     },
     LaunchApp {
         package: String,
@@ -113,9 +128,9 @@ enum Step {
     },
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Key {
+pub enum Key {
     Home,
     Back,
     Recents,
@@ -135,59 +150,69 @@ impl Key {
 
 impl Plan {
     fn validate(&self) -> Result<(), &'static str> {
-        if self.steps.is_empty() || self.steps.len() > MAX_STEPS {
-            return Err("Provide 1 to 32 steps.");
-        }
-        let mut wait = 0;
-        for step in &self.steps {
-            match step {
-                Step::OpenUrl { url }
-                    if !matches!(url.scheme(), "http" | "https")
-                        || url.host().is_none()
-                        || !url.username().is_empty()
-                        || url.password().is_some() =>
-                {
-                    return Err("Use an HTTP or HTTPS URL without user credentials.");
-                }
-                Step::LaunchApp { package, component } => {
-                    if !valid_package(package)
-                        || component.as_ref().is_some_and(|value| {
-                            value.split_once('/').is_none_or(|(owner, activity)| {
-                                owner != package || !valid_class(activity)
-                            })
-                        })
-                    {
-                        return Err("Use an Android package name and an optional package/activity component.");
-                    }
-                }
-                Step::Tap { x, y } if !unit(*x) || !unit(*y) => {
-                    return Err("Tap coordinates must be between 0 and 1.")
-                }
-                Step::Swipe {
-                    x1,
-                    y1,
-                    x2,
-                    y2,
-                    duration_ms,
-                } if ![*x1, *y1, *x2, *y2].into_iter().all(unit)
-                    || !(50..=3000).contains(duration_ms) =>
-                {
-                    return Err("Swipe coordinates must be between 0 and 1 and duration_ms between 50 and 3000.");
-                }
-                Step::Wait { ms } => {
-                    if !(1..=15000).contains(ms) {
-                        return Err("Wait ms must be between 1 and 15000.");
-                    }
-                    wait += ms;
-                }
-                _ => {}
-            }
-        }
-        if wait > 60000 {
-            return Err("Total wait time may not exceed 60000 ms.");
-        }
-        Ok(())
+        validate_steps(&self.steps)
     }
+}
+
+pub fn validate_steps(steps: &[Step]) -> Result<(), &'static str> {
+    if steps.is_empty() || steps.len() > MAX_STEPS {
+        return Err("Provide 1 to 32 steps.");
+    }
+    let mut wait = 0;
+    for step in steps {
+        match step {
+            Step::OpenUrl { url } if parse_url(url).is_none() => {
+                return Err("Use an HTTP or HTTPS URL without user credentials.");
+            }
+            Step::LaunchApp { package, component } => {
+                if !valid_package(package)
+                    || component.as_ref().is_some_and(|value| {
+                        value.split_once('/').is_none_or(|(owner, activity)| {
+                            owner != package || !valid_class(activity)
+                        })
+                    })
+                {
+                    return Err(
+                        "Use an Android package name and an optional package/activity component.",
+                    );
+                }
+            }
+            Step::Tap { x, y } if !unit(*x) || !unit(*y) => {
+                return Err("Tap coordinates must be between 0 and 1.")
+            }
+            Step::Swipe {
+                x1,
+                y1,
+                x2,
+                y2,
+                duration_ms,
+            } if ![*x1, *y1, *x2, *y2].into_iter().all(unit)
+                || !(50..=3000).contains(duration_ms) =>
+            {
+                return Err("Swipe coordinates must be between 0 and 1 and duration_ms between 50 and 3000.");
+            }
+            Step::Wait { ms } => {
+                if !(1..=15000).contains(ms) {
+                    return Err("Wait ms must be between 1 and 15000.");
+                }
+                wait += ms;
+            }
+            _ => {}
+        }
+    }
+    if wait > 60000 {
+        return Err("Total wait time may not exceed 60000 ms.");
+    }
+    Ok(())
+}
+
+fn parse_url(value: &str) -> Option<url::Url> {
+    let url = url::Url::parse(value).ok()?;
+    (matches!(url.scheme(), "http" | "https")
+        && url.host().is_some()
+        && url.username().is_empty()
+        && url.password().is_none())
+    .then_some(url)
 }
 
 fn unit(point: f32) -> bool {
@@ -216,17 +241,20 @@ fn valid_class(name: &str) -> bool {
 impl Desk {
     pub fn stop_api(&mut self) {
         self.api.server = None;
+        self.api.core.exiting.store(true, Ordering::Release);
     }
 
-    fn api_devices(&self) -> BTreeMap<u32, Endpoint> {
+    pub fn api_devices(&self) -> BTreeMap<u32, Endpoint> {
         self.devices
             .values()
             .filter_map(|device| {
-                let number = self.preferences.devices.get(&device.id)?.number;
+                let note = self.preferences.devices.get(&device.id)?;
+                let number = note.number;
                 Some((
                     number,
                     Endpoint {
                         number,
+                        tag: note.tag.clone(),
                         name: self.label(&device.id),
                         device: device.clone(),
                         controllable: self.can_control(&device.id),
@@ -237,9 +265,7 @@ impl Desk {
     }
 
     pub fn update_api(&self) {
-        if let Some(api) = &self.api.server {
-            *api.core.devices.write().unwrap() = self.api_devices();
-        }
+        *self.api.core.devices.write().unwrap() = self.api_devices();
     }
 
     pub fn api_button(&mut self, ui: &mut Ui) {
@@ -248,86 +274,130 @@ impl Desk {
         } else {
             tr!("로컬 API", "Local API")
         };
-        if ui
-            .add_sized([ui.available_width(), 24.], egui::Button::new(title))
-            .clicked()
-        {
-            self.api.open = true;
+        if desk_ui::tool_button(ui, title) {
+            self.tool = Some(Tool::Api);
         }
     }
 
     pub fn api_window(&mut self, ctx: &Context) {
-        if !self.api.open {
+        if self.tool != Some(Tool::Api) {
             return;
         }
-        let mut open = true;
-        egui::Window::new(tr!("로컬 API", "Local API"))
-            .open(&mut open)
-            .collapsible(false)
-            .default_width(360.)
-            .show(ctx, |ui| {
-                ui.label(tr!(
-                    "이 PC의 스크립트에서 기기를 선택하고 동작을 실행할 수 있습니다.",
-                    "Use scripts on this PC to select devices and run actions."
-                ));
-                if self.api.server.is_some() {
-                    ui.monospace(URL);
-                    ui.horizontal(|ui| {
-                        if ui.button(tr!("API 토큰 복사", "Copy API token")).clicked() {
-                            if let Some(api) = &self.api.server {
+        let closed = desk_ui::window(
+            ctx,
+            Tool::Api,
+            tr!("로컬 API", "Local API"),
+            [530., 312.],
+            |ui| {
+                let running = self.api.server.is_some();
+                card().show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    desk_ui::heading(
+                        ui,
+                        if running {
+                            tr!("서버 실행 중", "Server running")
+                        } else {
+                            tr!("서버 꺼짐", "Server off")
+                        },
+                    );
+                    desk_ui::note(
+                        ui,
+                        tr!(
+                            "이 PC의 스크립트에서 기기를 선택하고 작업을 실행할 수 있어요.",
+                            "Run device actions from scripts on this PC."
+                        ),
+                    );
+                    if running {
+                        ui.separator();
+                        ui.label(RichText::new(URL).monospace().size(17.));
+                    }
+                    ui.add_space(3.);
+                    ui.horizontal_wrapped(|ui| {
+                        if let Some(api) = &self.api.server {
+                            if ui
+                                .add(filled(tr!("API 토큰 복사", "Copy API token")))
+                                .clicked()
+                            {
                                 ctx.copy_text(api.token.clone());
+                                self.api.message =
+                                    tr!("API 토큰을 복사했습니다.", "API token copied.").into();
                             }
-                            self.api.message =
-                                tr!("API 토큰을 복사했습니다.", "API token copied.").into();
-                        }
-                        if ui.button(tr!("서버 끄기", "Stop server")).clicked() {
-                            self.api.server = None;
-                            self.api.message.clear();
+                            if ui.add(control(tr!("서버 끄기", "Stop server"))).clicked() {
+                                self.api.server = None;
+                                self.api.message.clear();
+                            }
+                        } else if ui.add(filled(tr!("서버 켜기", "Start server"))).clicked() {
+                            match Running::listen(self.api.core.clone(), PORT) {
+                                Ok(server) => {
+                                    self.api.server = Some(server);
+                                    self.api.message.clear();
+                                }
+                                Err(error) => self.api.message = error,
+                            }
                         }
                     });
-                    ui.monospace("GET  /v1/devices");
-                    ui.monospace("POST /v1/actions");
-                    ui.monospace("GET  /v1/jobs/{job_id}");
-                } else if ui.button(tr!("서버 켜기", "Start server")).clicked() {
-                    match Running::start(self.root.clone(), self.api_devices()) {
-                        Ok(server) => {
-                            self.api.server = Some(server);
-                            self.api.message.clear();
+                });
+                if running {
+                    card().show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        desk_ui::heading(ui, tr!("엔드포인트", "Endpoints"));
+                        for (method, path) in [
+                            ("GET", "/v1/devices"),
+                            ("GET", "/v1/devices/{number}/apps"),
+                            ("POST", "/v1/actions"),
+                            ("GET", "/v1/presets"),
+                            ("POST", "/v1/presets/{id}/run"),
+                            ("GET", "/v1/jobs/{job_id}"),
+                            ("POST", "/v1/jobs/{job_id}/retry"),
+                        ] {
+                            ui.horizontal(|ui| {
+                                ui.add_sized(
+                                    [38., 20.],
+                                    egui::Label::new(
+                                        RichText::new(method).monospace().color(desk_ui::MUTED),
+                                    ),
+                                );
+                                ui.add(
+                                    egui::Label::new(RichText::new(path).monospace()).truncate(),
+                                )
+                                .on_hover_text(path);
+                            });
                         }
-                        Err(error) => self.api.message = error,
-                    }
+                    });
                 }
-                if !self.api.message.is_empty() {
-                    ui.label(&self.api.message);
-                }
-            });
-        self.api.open = open;
+                desk_ui::message(ui, &self.api.message);
+            },
+        );
+        if closed {
+            self.tool = None;
+        }
+    }
+}
+
+impl Api {
+    pub fn new(root: PathBuf, presets: Catalog) -> Self {
+        Self {
+            core: Arc::new(Core::new(root, BTreeMap::new(), presets)),
+            server: None,
+            message: String::new(),
+        }
     }
 }
 
 impl Running {
-    fn start(root: PathBuf, devices: BTreeMap<u32, Endpoint>) -> Result<Self, String> {
-        Self::listen(root, devices, PORT)
-    }
-
-    fn listen(root: PathBuf, devices: BTreeMap<u32, Endpoint>, port: u16) -> Result<Self, String> {
+    fn listen(core: Arc<Core>, port: u16) -> Result<Self, String> {
         let token = token()?;
         let server = Arc::new(
             Server::http((std::net::Ipv4Addr::LOCALHOST, port))
                 .map_err(|error| error.to_string())?,
         );
-        let core = Arc::new(Core {
-            root,
-            devices: RwLock::new(devices),
-            jobs: Mutex::new(Jobs::default()),
-            stopped: AtomicBool::new(false),
-        });
-        let (listener, state, secret) = (server.clone(), core.clone(), token.clone());
+        let stopped = Arc::new(AtomicBool::new(false));
+        let (listener, canceled, secret) = (server.clone(), stopped.clone(), token.clone());
         thread::spawn(move || {
-            while !state.stopped.load(Ordering::Acquire) {
+            while !canceled.load(Ordering::Acquire) {
                 match listener.recv_timeout(Duration::from_millis(250)) {
-                    Ok(Some(request)) if !state.stopped.load(Ordering::Acquire) => {
-                        handle(request, &state, &secret)
+                    Ok(Some(request)) if !canceled.load(Ordering::Acquire) => {
+                        handle(request, &core, &secret, &canceled)
                     }
                     Ok(_) => {}
                     Err(_) => break,
@@ -336,7 +406,7 @@ impl Running {
         });
         Ok(Self {
             server,
-            core,
+            stopped,
             token,
         })
     }
@@ -381,11 +451,11 @@ fn authenticated(request: &Request, secret: &str) -> bool {
         })
 }
 
-fn handle(mut request: Request, state: &Arc<Core>, secret: &str) {
+fn handle(mut request: Request, state: &Arc<Core>, secret: &str, canceled: &Arc<AtomicBool>) {
     let (code, value) = if !authenticated(&request, secret) {
         failure(401, "A valid Bearer token is required.")
     } else {
-        route(&mut request, state)
+        route(&mut request, state, canceled)
     };
     let response = Response::from_string(value.to_string())
         .with_status_code(code)
@@ -398,7 +468,7 @@ fn failure(code: u16, error: impl Into<String>) -> (u16, Value) {
     (code, json!({ "error": error.into() }))
 }
 
-fn route(request: &mut Request, state: &Arc<Core>) -> (u16, Value) {
+fn route(request: &mut Request, state: &Arc<Core>, canceled: &Arc<AtomicBool>) -> (u16, Value) {
     match (request.method(), request.url()) {
         (&Method::Get, "/v1/devices") => {
             let devices: Vec<_> = state
@@ -410,14 +480,60 @@ fn route(request: &mut Request, state: &Arc<Core>) -> (u16, Value) {
                 .collect();
             (200, json!({ "devices": devices }))
         }
-        (&Method::Post, "/v1/actions") => submit(request, state),
+        (&Method::Get, "/v1/presets") => {
+            let presets = &state.presets.read().unwrap().items;
+            let items: Vec<_> = presets.iter().map(|(id, preset)| {
+                json!({ "id": id, "name": preset.name, "step_count": preset.steps.len() })
+            }).collect();
+            (200, json!({ "presets": items }))
+        }
+        (&Method::Post, "/v1/actions") => {
+            let plan: Plan = match read_json(request) {
+                Ok(plan) => plan,
+                Err(error) => return error,
+            };
+            if let Err(error) = plan.validate() {
+                return failure(400, error);
+            }
+            let targets = match get_targets(&state.devices.read().unwrap(), plan.targets) {
+                Ok(targets) => targets,
+                Err(error) => return error,
+            };
+            accepted(state.start_job(None, targets, plan.steps.into(), Some(canceled.clone())))
+        }
+        (&Method::Post, path) => {
+            if let Some(id) = route_id(path, "/v1/presets/", "/run") {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct RunPreset {
+                    targets: Targets,
+                }
+                let run: RunPreset = match read_json(request) {
+                    Ok(run) => run,
+                    Err(error) => return error,
+                };
+                let preset = state.presets.read().unwrap().items.get(&id).cloned();
+                let Some(preset) = preset else {
+                    return failure(404, "Preset not found.");
+                };
+                let targets = match get_targets(&state.devices.read().unwrap(), run.targets) {
+                    Ok(targets) => targets,
+                    Err(error) => return error,
+                };
+                return accepted(state.run_preset(preset, targets, Some(canceled.clone())));
+            }
+            if let Some(id) = route_id(path, "/v1/jobs/", "/retry") {
+                return accepted(state.retry_job(id, Some(canceled.clone())));
+            }
+            failure(404, "Unknown endpoint.")
+        }
         (&Method::Get, path) => {
             if let Some(id) = path
                 .strip_prefix("/v1/jobs/")
                 .and_then(|id| id.parse::<u64>().ok())
             {
                 return match state.jobs.lock().unwrap().history.get(&id) {
-                    Some(job) => (200, job.clone()),
+                    Some(job) => (200, job.public()),
                     None => failure(404, "Job not found."),
                 };
             }
@@ -432,6 +548,13 @@ fn route(request: &mut Request, state: &Arc<Core>) -> (u16, Value) {
         }
         _ => failure(404, "Unknown endpoint."),
     }
+}
+
+fn route_id(path: &str, prefix: &str, suffix: &str) -> Option<u64> {
+    path.strip_prefix(prefix)?
+        .strip_suffix(suffix)?
+        .parse()
+        .ok()
 }
 
 fn apps(state: &Core, number: u32) -> (u16, Value) {
@@ -468,6 +591,12 @@ fn get_targets(
     requested: Targets,
 ) -> Result<Vec<Endpoint>, (u16, Value)> {
     let numbers: BTreeSet<u32> = match requested {
+        Targets::Tagged(target) if !target.tag.trim().is_empty() => devices
+            .values()
+            .filter(|device| device.can_run() && device.tag == target.tag)
+            .map(|device| device.number)
+            .collect(),
+        Targets::Tagged(_) => return Err(failure(400, "Provide a nonempty device tag.")),
         Targets::Group(name) if name == "all" => devices
             .values()
             .filter(|device| device.can_run())
@@ -476,7 +605,7 @@ fn get_targets(
         Targets::Group(_) => {
             return Err(failure(
                 400,
-                "Use \"all\", a device number, or an array of numbers.",
+                "Use \"all\", a device number, an array of numbers, or a tag object.",
             ))
         }
         Targets::One(number) => BTreeSet::from([number]),
@@ -502,7 +631,7 @@ fn get_targets(
         .collect()
 }
 
-fn submit(request: &mut Request, state: &Arc<Core>) -> (u16, Value) {
+fn read_json<T: serde::de::DeserializeOwned>(request: &mut Request) -> Result<T, (u16, Value)> {
     let json_type = request
         .headers()
         .iter()
@@ -515,13 +644,13 @@ fn submit(request: &mut Request, state: &Arc<Core>) -> (u16, Value) {
                 .is_some_and(|value| value.trim().eq_ignore_ascii_case("application/json"))
         });
     if !json_type {
-        return failure(415, "Use Content-Type: application/json.");
+        return Err(failure(415, "Use Content-Type: application/json."));
     }
     let Some(length) = request.body_length() else {
-        return failure(411, "Content-Length is required.");
+        return Err(failure(411, "Content-Length is required."));
     };
     if length > MAX_BODY {
-        return failure(413, "Request body is too large.");
+        return Err(failure(413, "Request body is too large."));
     }
     let mut body = Vec::new();
     if request
@@ -531,108 +660,324 @@ fn submit(request: &mut Request, state: &Arc<Core>) -> (u16, Value) {
         .is_err()
         || body.len() != length
     {
-        return failure(400, "Could not read the request body.");
+        return Err(failure(400, "Could not read the request body."));
     }
-    let plan = match serde_json::from_slice::<Plan>(&body) {
-        Ok(plan) => plan,
-        Err(error) => return failure(400, error.to_string()),
-    };
-    if let Err(error) = plan.validate() {
-        return failure(400, error);
+    serde_json::from_slice(&body).map_err(|error| failure(400, error.to_string()))
+}
+
+#[derive(Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Status {
+    Running,
+    Succeeded,
+    Failed,
+    PartialFailure,
+    Canceled,
+}
+
+#[derive(Clone, Serialize)]
+pub struct DeviceResult {
+    pub number: u32,
+    pub status: Status,
+    pub completed_steps: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_step: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct Job {
+    pub id: u64,
+    pub name: Option<String>,
+    pub status: Status,
+    targets: Vec<Endpoint>,
+    steps: Arc<[Step]>,
+    pub results: Vec<DeviceResult>,
+}
+
+impl Job {
+    pub fn count(&self) -> usize {
+        self.targets.len()
     }
-    let targets = match get_targets(&state.devices.read().unwrap(), plan.targets) {
-        Ok(targets) => targets,
-        Err(error) => return error,
-    };
-    let numbers: Vec<_> = targets.iter().map(|target| target.number).collect();
-    let id = {
-        let mut jobs = state.jobs.lock().unwrap();
+
+    pub fn step_count(&self) -> usize {
+        self.steps.len()
+    }
+
+    pub fn failed_count(&self) -> usize {
+        self.results
+            .iter()
+            .filter(|result| result.status == Status::Failed)
+            .count()
+    }
+
+    fn public(&self) -> Value {
+        if self.status == Status::Running {
+            let targets: Vec<_> = self.targets.iter().map(|target| target.number).collect();
+            json!({ "job_id": self.id, "status": self.status, "targets": targets })
+        } else {
+            json!({ "job_id": self.id, "status": self.status, "devices": self.results })
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum JobError {
+    Busy,
+    NoTargets,
+    JobNotFound,
+    NoFailures,
+    Stopped,
+    InvalidSteps(&'static str),
+}
+
+impl JobError {
+    pub fn label(self) -> String {
+        match self {
+            Self::Busy => tr!("다른 작업이 실행 중입니다.", "Another job is running."),
+            Self::NoTargets => tr!(
+                "제어 가능한 기기가 없습니다.",
+                "No controllable devices were selected."
+            ),
+            Self::JobNotFound => tr!("작업을 찾을 수 없습니다.", "Job not found."),
+            Self::NoFailures => tr!(
+                "재실행할 실패 기기가 없습니다.",
+                "No failed devices to retry."
+            ),
+            Self::Stopped => tr!(
+                "작업 실행을 시작할 수 없습니다.",
+                "The job could not be started."
+            ),
+            Self::InvalidSteps(message) => return crate::presets::validation_label(message).into(),
+        }
+        .into()
+    }
+}
+
+fn accepted(result: Result<Job, JobError>) -> (u16, Value) {
+    match result {
+        Ok(job) => (202, job.public()),
+        Err(error) => match error {
+            JobError::Busy => failure(409, "Another job is running."),
+            JobError::NoTargets => failure(409, "No controllable devices were selected."),
+            JobError::JobNotFound => failure(404, "Job not found."),
+            JobError::NoFailures => failure(409, "No failed devices to retry."),
+            JobError::Stopped => failure(503, "The job could not be started."),
+            JobError::InvalidSteps(message) => failure(400, message),
+        },
+    }
+}
+
+impl Core {
+    fn new(root: PathBuf, devices: BTreeMap<u32, Endpoint>, presets: Catalog) -> Self {
+        Self {
+            root,
+            devices: RwLock::new(devices),
+            jobs: Mutex::new(Jobs::default()),
+            presets: RwLock::new(presets),
+            exiting: AtomicBool::new(false),
+        }
+    }
+
+    pub fn set_presets(&self, presets: Catalog) {
+        *self.presets.write().unwrap() = presets;
+    }
+
+    pub fn history(&self) -> Vec<Job> {
+        self.jobs
+            .lock()
+            .unwrap()
+            .history
+            .values()
+            .rev()
+            .cloned()
+            .collect()
+    }
+
+    pub fn busy(&self) -> bool {
+        self.jobs.lock().unwrap().busy
+    }
+
+    pub fn run_preset(
+        self: &Arc<Self>,
+        preset: Preset,
+        targets: Vec<Endpoint>,
+        canceled: Option<Arc<AtomicBool>>,
+    ) -> Result<Job, JobError> {
+        validate_steps(&preset.steps).map_err(JobError::InvalidSteps)?;
+        self.start_job(Some(preset.name), targets, preset.steps.into(), canceled)
+    }
+
+    pub fn retry_job(
+        self: &Arc<Self>,
+        id: u64,
+        canceled: Option<Arc<AtomicBool>>,
+    ) -> Result<Job, JobError> {
+        let job = self
+            .jobs
+            .lock()
+            .unwrap()
+            .history
+            .get(&id)
+            .cloned()
+            .ok_or(JobError::JobNotFound)?;
+        if job.status == Status::Running {
+            return Err(JobError::Busy);
+        }
+        let devices = self.devices.read().unwrap();
+        let retries: Vec<_> = job
+            .targets
+            .iter()
+            .zip(&job.results)
+            .filter(|(_, result)| result.status == Status::Failed)
+            .map(|(target, _)| {
+                devices
+                    .get(&target.number)
+                    .filter(|current| current.device.id == target.device.id)
+                    .unwrap_or(target)
+                    .clone()
+            })
+            .collect();
+        if retries.is_empty() {
+            return Err(JobError::NoFailures);
+        }
+        if !retries.iter().any(|target| is_current(&devices, target)) {
+            return Err(JobError::NoTargets);
+        }
+        drop(devices);
+        self.start_job(job.name, retries, job.steps, canceled)
+    }
+
+    fn start_job(
+        self: &Arc<Self>,
+        name: Option<String>,
+        targets: Vec<Endpoint>,
+        steps: Arc<[Step]>,
+        canceled: Option<Arc<AtomicBool>>,
+    ) -> Result<Job, JobError> {
+        if targets.is_empty() {
+            return Err(JobError::NoTargets);
+        }
+        if self.stopped(canceled.as_deref()) {
+            return Err(JobError::Stopped);
+        }
+        let mut jobs = self.jobs.lock().unwrap();
         if jobs.busy {
-            return failure(409, "Another job is running.");
+            return Err(JobError::Busy);
         }
         jobs.next += 1;
-        let id = jobs.next;
+        let job = Job {
+            id: jobs.next,
+            name,
+            status: Status::Running,
+            targets,
+            steps,
+            results: Vec::new(),
+        };
+        let running = job.clone();
+        let state = self.clone();
+        // Keep the lock until the worker is registered so even a zero-time job has an entry.
+        thread::Builder::new()
+            .spawn(move || run_job(&state, running, canceled.as_deref()))
+            .map_err(|_| JobError::Stopped)?;
         if jobs.history.len() >= HISTORY {
             jobs.history.pop_first();
         }
+        jobs.history.insert(job.id, job.clone());
         jobs.busy = true;
-        jobs.history.insert(
-            id,
-            json!({ "job_id": id, "status": "running", "targets": numbers }),
-        );
-        id
-    };
-    let state = state.clone();
-    thread::spawn(move || run_job(&state, id, targets, &plan.steps));
-    (
-        202,
-        json!({ "job_id": id, "status": "running", "targets": numbers }),
-    )
+        Ok(job)
+    }
+
+    fn stopped(&self, canceled: Option<&AtomicBool>) -> bool {
+        self.exiting.load(Ordering::Acquire)
+            || canceled.is_some_and(|flag| flag.load(Ordering::Acquire))
+    }
 }
 
-fn run_job(state: &Core, id: u64, targets: Vec<Endpoint>, steps: &[Step]) {
+fn is_current(devices: &BTreeMap<u32, Endpoint>, target: &Endpoint) -> bool {
+    devices
+        .get(&target.number)
+        .is_some_and(|current| current.can_run() && current.device == target.device)
+}
+
+fn run_job(state: &Core, mut job: Job, canceled: Option<&AtomicBool>) {
     let mut results = Vec::new();
-    for group in targets.chunks(6) {
+    for group in job.targets.chunks(6) {
         thread::scope(|scope| {
             let workers: Vec<_> = group
                 .iter()
-                .map(|target| scope.spawn(move || run_steps(state, target, steps)))
+                .map(|target| scope.spawn(|| run_steps(state, target, &job.steps, canceled)))
                 .collect();
             for (worker, target) in workers.into_iter().zip(group) {
-                results.push(worker.join().unwrap_or_else(|_| json!({ "number": target.number, "status": "failed", "error": "Worker failed." })));
+                results.push(worker.join().unwrap_or_else(|_| DeviceResult {
+                    number: target.number,
+                    status: Status::Failed,
+                    completed_steps: 0,
+                    failed_step: None,
+                    error: Some("Worker failed.".into()),
+                }));
             }
         });
     }
     let done = results
         .iter()
-        .filter(|result| result["status"] == "succeeded")
+        .filter(|result| result.status == Status::Succeeded)
         .count();
-    let status = if done == results.len() {
-        "succeeded"
-    } else if state.stopped.load(Ordering::Acquire) {
-        "canceled"
+    job.status = if done == results.len() {
+        Status::Succeeded
+    } else if results
+        .iter()
+        .any(|result| result.status == Status::Canceled)
+    {
+        Status::Canceled
     } else if done > 0 {
-        "partial_failure"
+        Status::PartialFailure
     } else {
-        "failed"
+        Status::Failed
     };
+    job.results = results;
     let mut jobs = state.jobs.lock().unwrap();
-    jobs.history.insert(
-        id,
-        json!({ "job_id": id, "status": status, "devices": results }),
-    );
+    jobs.history.insert(job.id, job);
     jobs.busy = false;
 }
 
-fn run_steps(state: &Core, target: &Endpoint, steps: &[Step]) -> Value {
+fn run_steps(
+    state: &Core,
+    target: &Endpoint,
+    steps: &[Step],
+    canceled: Option<&AtomicBool>,
+) -> DeviceResult {
+    let mut result = DeviceResult {
+        number: target.number,
+        status: Status::Succeeded,
+        completed_steps: 0,
+        failed_step: None,
+        error: None,
+    };
     for (index, step) in steps.iter().enumerate() {
-        if state.stopped.load(Ordering::Acquire) {
-            return json!({ "number": target.number, "status": "canceled", "completed_steps": index });
+        if state.stopped(canceled) {
+            result.status = Status::Canceled;
+            return result;
         }
-        let still_connected = state
-            .devices
-            .read()
-            .unwrap()
-            .get(&target.number)
-            .is_some_and(|current| current.can_run() && current.device == target.device);
-        let result = if still_connected {
-            execute(state, &target.device, step)
+        let step_result = if is_current(&state.devices.read().unwrap(), target) {
+            execute(state, &target.device, step, canceled)
         } else {
             Err("Device disconnected or became view-only.".into())
         };
-        if let Err(error) = result {
-            let status = if state.stopped.load(Ordering::Acquire) {
-                "canceled"
+        if let Err(error) = step_result {
+            result.status = if state.stopped(canceled) {
+                Status::Canceled
             } else {
-                "failed"
+                Status::Failed
             };
-            return json!({
-                "number": target.number, "status": status, "completed_steps": index,
-                "failed_step": index + 1, "error": error.chars().take(600).collect::<String>(),
-            });
+            result.failed_step = Some(index + 1);
+            result.error = Some(error.chars().take(600).collect());
+            return result;
         }
+        result.completed_steps += 1;
     }
-    json!({ "number": target.number, "status": "succeeded", "completed_steps": steps.len() })
+    result
 }
 
 fn quote(value: &str) -> String {
@@ -646,10 +991,16 @@ fn pixels(x: f32, y: f32, size: engine::ScreenSize) -> [String; 2] {
     ]
 }
 
-fn execute(state: &Core, device: &Device, step: &Step) -> Result<(), String> {
+fn execute(
+    state: &Core,
+    device: &Device,
+    step: &Step,
+    canceled: Option<&AtomicBool>,
+) -> Result<(), String> {
     let mut cmd = engine::adb_command(&state.root, device);
     match step {
         Step::OpenUrl { url } => {
+            let url = parse_url(url).ok_or("Use an HTTP or HTTPS URL without user credentials.")?;
             cmd.args([
                 "shell",
                 "am",
@@ -704,7 +1055,7 @@ fn execute(state: &Core, device: &Device, step: &Step) -> Result<(), String> {
         Step::Wait { ms } => {
             let end = Instant::now() + Duration::from_millis(*ms as u64);
             while Instant::now() < end {
-                if state.stopped.load(Ordering::Acquire) {
+                if state.stopped(canceled) {
                     return Err("Server stopped.".into());
                 }
                 thread::sleep(
@@ -715,7 +1066,7 @@ fn execute(state: &Core, device: &Device, step: &Step) -> Result<(), String> {
             return Ok(());
         }
     }
-    if state.stopped.load(Ordering::Acquire) {
+    if state.stopped(canceled) {
         return Err("Server stopped.".into());
     }
     let result = engine::run(&mut cmd, 12)?;
@@ -744,6 +1095,11 @@ mod tests {
             Endpoint {
                 number,
                 controllable,
+                tag: if number == 2 {
+                    "QA".into()
+                } else {
+                    String::new()
+                },
                 name: format!("Demo {number}"),
                 device: Device {
                     id: format!("demo-{number}"),
@@ -778,7 +1134,11 @@ mod tests {
     #[test]
     fn local_http_requires_token_and_runs_a_plan_on_eligible_devices() {
         let entries = BTreeMap::from([fixture(2, true), fixture(3, true), fixture(4, false)]);
-        let server = Running::listen(PathBuf::new(), entries, 0).unwrap();
+        let server = Running::listen(
+            Arc::new(Core::new(PathBuf::new(), entries, Catalog::default())),
+            0,
+        )
+        .unwrap();
         let addr = server.server.server_addr().to_ip().unwrap();
         assert!(addr.ip().is_loopback());
         assert_eq!(server.token.len(), 64);
@@ -798,15 +1158,89 @@ mod tests {
         assert_eq!(code, 202);
         assert_eq!(accepted["targets"], json!([2, 3]));
         let path = format!("/v1/jobs/{}", accepted["job_id"]);
+        let job = wait_for_job(addr, &server.token, &path);
+        assert_eq!(job["status"], "succeeded");
+        assert_eq!(job["devices"][0]["completed_steps"], 2);
+        assert_eq!(job["devices"][1]["completed_steps"], 2);
+    }
+
+    #[test]
+    fn preset_jobs_retry_only_original_failed_devices_with_original_steps() {
+        let (number, mut disconnected) = fixture(5, true);
+        disconnected.tag = "QA".into();
+        let mut entries = BTreeMap::from([fixture(2, true), (number, disconnected.clone())]);
+        let preset = Preset {
+            name: "QA smoke test".into(),
+            steps: vec![Step::Wait { ms: 1 }, Step::Wait { ms: 1 }],
+        };
+        let mut catalog = Catalog::default();
+        catalog.items.insert(1, preset.clone());
+        let core = Arc::new(Core::new(PathBuf::new(), entries.clone(), catalog));
+        let server = Running::listen(core.clone(), 0).unwrap();
+        let addr = server.server.server_addr().to_ip().unwrap();
+
+        let send = |verb, path, body| request(addr, &server.token, verb, path, body);
+        let list = send("GET", "/v1/presets", "").1;
+        assert_eq!(
+            list["presets"][0],
+            json!({"id": 1, "name": "QA smoke test", "step_count": 2})
+        );
+        let (code, started) = send("POST", "/v1/presets/1/run", r#"{"targets":{"tag":"QA"}}"#);
+        assert_eq!(code, 202);
+        assert_eq!(started["targets"], json!([2, 5]));
+        let path = format!("/v1/jobs/{}", started["job_id"]);
+        assert_eq!(
+            wait_for_job(addr, &server.token, &path)["status"],
+            "succeeded"
+        );
+
+        // Simulate a disconnect between choosing targets and dispatching the job.
+        let targets = entries.values().cloned().collect();
+        core.devices.write().unwrap().remove(&5);
+        let started = core.run_preset(preset.clone(), targets, None).unwrap();
+        let path = format!("/v1/jobs/{}", started.id);
+        let final_job = wait_for_job(addr, &server.token, &path);
+        assert_eq!(final_job["status"], "partial_failure");
+        assert_eq!(final_job["devices"][0]["status"], "succeeded");
+        assert_eq!(final_job["devices"][1]["status"], "failed");
+        assert!(final_job["devices"][1]["failed_step"].as_u64().is_some());
+
+        let retry_path = format!("{path}/retry");
+        entries.get_mut(&5).unwrap().device.id = "replacement".into();
+        *core.devices.write().unwrap() = entries.clone();
+        assert_eq!(send("POST", &retry_path, "").0, 409);
+
+        entries.insert(5, disconnected);
+        *core.devices.write().unwrap() = entries;
+        let mut changed = Catalog::default();
+        changed.items.insert(
+            1,
+            Preset {
+                steps: vec![Step::Wait { ms: 1 }],
+                ..preset
+            },
+        );
+        core.set_presets(changed);
+        let (code, retry) = send("POST", &retry_path, "");
+        assert_eq!(code, 202);
+        assert_eq!(retry["targets"], json!([5]));
+        let retry_job = wait_for_job(
+            addr,
+            &server.token,
+            &format!("/v1/jobs/{}", retry["job_id"]),
+        );
+        assert_eq!(retry_job["status"], "succeeded");
+        assert_eq!(retry_job["devices"][0]["completed_steps"], 2);
+        assert_eq!(retry_job["devices"].as_array().unwrap().len(), 1);
+    }
+
+    fn wait_for_job(addr: SocketAddr, token: &str, path: &str) -> Value {
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
-            let (code, job) = request(addr, &server.token, "GET", &path, "");
+            let (code, job) = request(addr, token, "GET", path, "");
             assert_eq!(code, 200);
             if job["status"] != "running" {
-                assert_eq!(job["status"], "succeeded");
-                assert_eq!(job["devices"][0]["completed_steps"], 2);
-                assert_eq!(job["devices"][1]["completed_steps"], 2);
-                break;
+                return job;
             }
             assert!(Instant::now() < deadline);
             thread::sleep(Duration::from_millis(20));
