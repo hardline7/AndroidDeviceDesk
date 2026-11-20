@@ -4,23 +4,21 @@
 
 **Android Device Desk는 Windows PC에서 여러 안드로이드 기기의 화면을 한눈에 보고 조작하는 데스크톱 앱입니다.** Windows 표시 언어가 한국어이면 한국어, 그 외에는 영어로 표시합니다. 기기 격자에서 폰을 드래그로 묶고, 대표 화면을 한 번 탭하거나 스와이프해 선택한 기기에 같은 입력을 전달할 수 있습니다. 한 대를 자세히 볼 때는 별도의 미러링 창과 기기 조작 패널을 엽니다.
 
-> USB 인터넷 공유, 드래그 후 동시 조작 창 자동 열림, Windows 표시 언어 감지는 현재 소스 빌드에 적용됩니다. v0.1.0 릴리스에서는 드래그 후 **동시 조작** 버튼을 누릅니다.
+> 화면과 사용 방법은 현재 main 소스 빌드를 기준으로 합니다. USB 인터넷 공유, 로컬 API, Windows 언어 감지, 드래그 후 동시 조작 창 자동 열림을 포함합니다. v0.1.0 릴리스에서는 드래그 후 **동시 조작** 버튼을 누릅니다.
 
-## 화면 미리보기
+## 실제 연결 화면
 
-샘플 기기로 촬영한 화면입니다. 썸네일을 누르면 큰 이미지가 열립니다.
+Windows에서 기기 데스크를 실행하고 USB로 연결한 Android 기기 화면을 촬영했습니다. 이미지를 누르면 크게 볼 수 있습니다.
 
-| 한국어 대시보드 | 영어 대시보드 |
-| --- | --- |
-| <a href="docs/screenshots/dashboard-ko.png"><img src="docs/screenshots/dashboard-ko.png" width="420" alt="한국어 기기 격자와 컨트롤 패널"></a> | <a href="docs/screenshots/dashboard-en.png"><img src="docs/screenshots/dashboard-en.png" width="420" alt="영어 기기 격자와 컨트롤 패널"></a> |
+[![연결된 갤럭시와 로키드 안경의 미리보기가 보이는 대시보드](docs/screenshots/dashboard-actual.png)](docs/screenshots/dashboard-actual.png)
 
 | 동시 조작 | 개별 기기 도구 | 앱 검색과 실행 |
 | :---: | :---: | :---: |
-| <a href="docs/screenshots/batch-control.png"><img src="docs/screenshots/batch-control.png" width="225" alt="대표 화면이 열린 동시 조작 창"></a> | <a href="docs/screenshots/device-tools.png"><img src="docs/screenshots/device-tools.png" width="225" alt="APK 설치와 캡처 등 개별 기기 도구"></a> | <a href="docs/screenshots/app-launcher.png"><img src="docs/screenshots/app-launcher.png" width="225" alt="설치된 앱 검색 및 실행 화면"></a> |
+| <a href="docs/screenshots/batch-control.png"><img src="docs/screenshots/batch-control.png" width="225" alt="실제 갤럭시 화면이 표시된 동시 조작 창"></a> | <a href="docs/screenshots/device-tools.png"><img src="docs/screenshots/device-tools.png" width="225" alt="선택한 갤럭시의 APK·캡처·파일 전송 도구"></a> | <a href="docs/screenshots/app-launcher.png"><img src="docs/screenshots/app-launcher.png" width="225" alt="갤럭시에서 조회한 앱 목록과 영어 앱 실행 패널"></a> |
 
-**기기 필터와 태그** · QA 태그를 골라 선택한 기기와 소형 창 설정을 확인하는 화면
-
-<a href="docs/screenshots/device-filters.png"><img src="docs/screenshots/device-filters.png" width="760" alt="QA 태그 필터와 선택된 기기"></a>
+| USB 인터넷 공유 | 로컬 API |
+| :---: | :---: |
+| <a href="docs/screenshots/usb-internet.png"><img src="docs/screenshots/usb-internet.png" width="390" alt="USB로 연결된 갤럭시 3대를 선택한 인터넷 공유 창"></a> | <a href="docs/screenshots/local-api.png"><img src="docs/screenshots/local-api.png" width="390" alt="실행 중인 로컬 API의 주소와 엔드포인트"></a> |
 
 ## 주요 기능
 
@@ -79,6 +77,19 @@ Get-FileHash .\AndroidDeviceDesk.exe -Algorithm SHA256
 4. 폰의 Wi-Fi와 모바일 데이터가 꺼진 상태에서도 브라우저에서 웹사이트를 열 수 있습니다. 종료하려면 **선택 기기에 끄기** 또는 **모두 끄기**를 사용합니다.
 
 PC와 USB 케이블이 연결돼 있고 기기 데스크가 실행 중이어야 합니다. Android의 VPN을 사용하므로 기존 VPN이 있는 기기에서는 전환이 필요할 수 있습니다. Gnirehtet은 IPv4 TCP·UDP를 전달합니다. USB를 뽑았다 다시 연결한 기기는 공유를 다시 켤 수 있습니다. [Gnirehtet 사용 안내](https://github.com/Genymobile/gnirehtet/tree/v2.5.1)
+
+## 로컬 API 빠르게 시작하기
+
+1. 기기 데스크 오른쪽에서 **로컬 API → 서버 켜기 → API 토큰 복사**를 누릅니다.
+2. 이 PC의 PowerShell에서 기기 번호와 제어 가능 상태를 조회합니다.
+
+```powershell
+$api = 'http://127.0.0.1:17653'
+$headers = @{ Authorization = 'Bearer ' + (Get-Clipboard -Raw).Trim() }
+Invoke-RestMethod "$api/v1/devices" -Headers $headers
+```
+
+`POST /v1/actions`에 기기 번호 하나, 번호 목록, 또는 `"all"`을 보내면 사이트 열기, 앱 실행, 대기, 탭, 스와이프를 요청 순서대로 처리합니다. 반환된 `job_id`로 기기별 결과를 확인합니다. [API 사용 문서와 PowerShell 예제](docs/API.md)
 
 ## 구조와 데이터 저장
 

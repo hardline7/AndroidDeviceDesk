@@ -4,23 +4,21 @@
 
 **Android Device Desk is a Windows desktop app for mirroring and controlling multiple Android devices.** Drag across the device grid to select several phones, then use a representative screen to send the same tap or swipe to the group. Open a separate full-size mirror and control panel when you need to work on one device. The interface follows the Windows display language and uses English for all display languages other than Korean.
 
-> The source build includes USB Internet sharing, automatic batch-window opening, and Windows display-language detection. In release v0.1.0, click **Batch Control** after dragging.
+> These screenshots and instructions cover the current main source build, which includes USB Internet sharing, the local API, Windows display-language detection, and automatic batch-window opening. In release v0.1.0, click **Batch Control** after dragging.
 
-## Screenshots
+## Screenshots from connected devices
 
-Captured with sample devices. Select a thumbnail to open the larger image.
+Captured in Device Desk on Windows with Android devices connected over USB. Select an image to open the larger capture.
 
-| Korean dashboard | English dashboard |
-| --- | --- |
-| <a href="docs/screenshots/dashboard-ko.png"><img src="docs/screenshots/dashboard-ko.png" width="420" alt="Korean device grid and controls"></a> | <a href="docs/screenshots/dashboard-en.png"><img src="docs/screenshots/dashboard-en.png" width="420" alt="English device grid and controls"></a> |
+[![Dashboard showing previews from connected Galaxy phones and Rokid glasses](docs/screenshots/dashboard-actual.png)](docs/screenshots/dashboard-actual.png)
 
-| Batch control | Individual device tools | App search and launcher |
+| Batch control | Device tools | App search and launcher |
 | :---: | :---: | :---: |
-| <a href="docs/screenshots/batch-control.png"><img src="docs/screenshots/batch-control.png" width="225" alt="Batch window with representative screen"></a> | <a href="docs/screenshots/device-tools.png"><img src="docs/screenshots/device-tools.png" width="225" alt="Device tools including APK installation and screenshots"></a> | <a href="docs/screenshots/app-launcher.png"><img src="docs/screenshots/app-launcher.png" width="225" alt="Installed apps with search and a launch button"></a> |
+| <a href="docs/screenshots/batch-control.png"><img src="docs/screenshots/batch-control.png" width="225" alt="Batch controls with a live Galaxy screen"></a> | <a href="docs/screenshots/device-tools.png"><img src="docs/screenshots/device-tools.png" width="225" alt="Galaxy device tools for APKs, screenshots, and files"></a> | <a href="docs/screenshots/app-launcher.png"><img src="docs/screenshots/app-launcher.png" width="225" alt="English app launcher showing apps queried from a Galaxy phone"></a> |
 
-**Device filters and tags** · The QA tag narrows the grid and keeps the small-window settings in view.
-
-<a href="docs/screenshots/device-filters.png"><img src="docs/screenshots/device-filters.png" width="760" alt="QA tag filter and selected devices"></a>
+| USB Internet sharing | Local API |
+| :---: | :---: |
+| <a href="docs/screenshots/usb-internet.png"><img src="docs/screenshots/usb-internet.png" width="390" alt="Internet sharing panel with three USB-connected Galaxy phones selected"></a> | <a href="docs/screenshots/local-api.png"><img src="docs/screenshots/local-api.png" width="390" alt="Running local API showing its address and endpoints"></a> |
 
 ## Features
 
@@ -79,6 +77,19 @@ Tap and swipe locations are relative to the representative image and are mapped 
 4. With Wi-Fi and mobile data disabled, open a website in the phone’s browser. Choose **Disable for selected** or **Disable all** to end sharing.
 
 Keep Device Desk running and the USB cable connected. Sharing uses Android’s VPN facility, so an existing VPN may need to be switched. Gnirehtet relays IPv4 TCP and UDP. If a device is unplugged, reconnect it and enable sharing again. [Gnirehtet documentation](https://github.com/Genymobile/gnirehtet/tree/v2.5.1)
+
+## Get started with the local API
+
+1. In Device Desk, choose **Local API → Start server → Copy API token**.
+2. In PowerShell on the same PC, query device numbers and control availability.
+
+```powershell
+$api = 'http://127.0.0.1:17653'
+$headers = @{ Authorization = 'Bearer ' + (Get-Clipboard -Raw).Trim() }
+Invoke-RestMethod "$api/v1/devices" -Headers $headers
+```
+
+Send a single device number, an array of numbers, or `"all"` to `POST /v1/actions` to run website, app, wait, tap, and swipe steps in order. Use the returned `job_id` to check the result for each device. [API reference and PowerShell examples](docs/API.md)
 
 ## Architecture and local data
 
