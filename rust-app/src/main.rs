@@ -2,6 +2,7 @@
 
 #[macro_use]
 mod locale;
+mod api;
 mod batch;
 mod engine;
 mod panel;
@@ -134,6 +135,7 @@ struct Desk {
     marquee: Option<(Pos2, bool)>,
     batch: batch::Batch,
     sharing: tether::Sharing,
+    api: api::Api,
 }
 
 fn install_fonts(ctx: &Context) {
@@ -193,6 +195,7 @@ impl Desk {
             marquee: None,
             batch: batch::Batch::default(),
             sharing: tether::Sharing::default(),
+            api: api::Api::default(),
         }
     }
 
@@ -781,6 +784,7 @@ impl Desk {
             self.open_batch(ui.ctx());
         }
         self.internet_button(ui);
+        self.api_button(ui);
         ui.separator();
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -1129,6 +1133,7 @@ impl eframe::App for Desk {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         self.events(ctx);
         self.update_sharing(ctx);
+        self.update_api();
         if Instant::now() >= self.next_inventory {
             self.refresh(ctx);
         }
@@ -1226,9 +1231,11 @@ impl eframe::App for Desk {
         self.render_panel(ctx);
         self.render_batch(ctx);
         self.internet_window(ctx);
+        self.api_window(ctx);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.stop_api();
         for mirror in self.mirrors.values() {
             engine::close_window(mirror.child.id());
         }

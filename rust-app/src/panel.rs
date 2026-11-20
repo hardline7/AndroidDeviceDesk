@@ -42,7 +42,7 @@ impl Tool {
     }
 }
 
-const APP_QUERY: &[&str] = &[
+pub(crate) const APP_QUERY: &[&str] = &[
     "shell",
     "cmd",
     "package",

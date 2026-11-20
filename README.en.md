@@ -34,6 +34,7 @@ Captured with sample devices. Select a thumbnail to open the larger image.
 | View-only and recording | Disable mouse and keyboard control before opening a mirror for view-only use. Supported devices can forward audio and record to MKV. |
 | Organization | Find devices by number, alias, tag, or connection type. Adjust window width, resolution, and maximum frame rate. |
 | USB Internet sharing | Give USB-connected Android devices access to the PC’s Internet connection. Approve the VPN prompt on each device the first time. |
+| Local API | Run a sequence of site, app, tap, and swipe actions on one device, several devices, or all connected devices. [API guide](docs/API.md) |
 
 ## Download and connect
 

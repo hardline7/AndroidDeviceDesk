@@ -31,7 +31,7 @@ impl Desk {
             .collect()
     }
 
-    fn can_control(&self, id: &str) -> bool {
+    pub(crate) fn can_control(&self, id: &str) -> bool {
         self.control
             && self
                 .mirrors
