@@ -1,0 +1,13 @@
+/.build/
+/.build-deps/
+/.rust-build/
+/__pycache__/
+/dist/
+/vendor/
+/target/
+/rust-app/target/
+*.pyc
+*.log
+*.tmp
+.env
+.env.*
