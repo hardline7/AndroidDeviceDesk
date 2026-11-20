@@ -19,6 +19,29 @@ struct Launcher {
     details: String,
 }
 
+#[derive(Clone, Copy)]
+enum Tool {
+    Install,
+    Capture,
+    Send,
+    Receive,
+    Rename,
+    Restart,
+}
+
+impl Tool {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Install => tr!("APK 설치", "Install APK"),
+            Self::Capture => tr!("화면 캡처", "Screenshot"),
+            Self::Send => tr!("파일 보내기", "Send file"),
+            Self::Receive => tr!("파일 가져오기", "Get file"),
+            Self::Rename => tr!("이름 · 태그", "Name and tag"),
+            Self::Restart => tr!("다시 시작", "Restart"),
+        }
+    }
+}
+
 const APP_QUERY: &[&str] = &[
     "shell",
     "cmd",
@@ -50,7 +73,7 @@ impl Desk {
             args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
         );
         if self.panel.device.as_ref() == Some(&device.id) {
-            self.panel.status = format!("{label} 중…");
+            self.panel.status = trf!("{label} 중…", "{label} in progress…");
         }
         thread::spawn(move || {
             let timeout = if matches!(
@@ -86,14 +109,15 @@ impl Desk {
         }
         match result {
             Ok(output) => {
-                self.panel.status = format!("{label} 완료");
-                if label == "앱 목록 확인" {
+                self.panel.status = trf!("{label} 완료", "{label} completed");
+                if label == tr!("앱 목록 확인", "Load apps") {
                     self.panel.apps = launchers(&output);
                 }
             }
             Err(error) => {
-                self.panel.status = format!(
+                self.panel.status = trf!(
                     "{label} 실패 · {}",
+                    "{label} failed · {}",
                     error.chars().take(120).collect::<String>()
                 )
             }
@@ -116,7 +140,13 @@ impl Desk {
             device: Some(id.to_owned()),
             ..Panel::default()
         };
-        self.run_action(ctx, &device, "앱 목록 확인", APP_QUERY, None);
+        self.run_action(
+            ctx,
+            &device,
+            tr!("앱 목록 확인", "Load apps"),
+            APP_QUERY,
+            None,
+        );
     }
 
     pub fn render_panel(&mut self, ctx: &Context) {
@@ -165,7 +195,7 @@ impl Desk {
             )
         };
         let mut builder = egui::ViewportBuilder::default()
-            .with_title("기기 조작")
+            .with_title(tr!("기기 조작", "Device Controls"))
             .with_inner_size([width, height])
             .with_min_inner_size([282., 440.])
             .with_taskbar(false);
@@ -219,7 +249,10 @@ impl Desk {
             .is_none_or(|mirror| mirror.controlled && !mirror.closing);
         ui.horizontal(|ui| {
             let width = (ui.available_width() - 8.) / 2.;
-            for (index, text) in ["기기 도구", "앱 실행"].into_iter().enumerate() {
+            for (index, text) in [tr!("기기 도구", "Device tools"), tr!("앱 실행", "Apps")]
+                .into_iter()
+                .enumerate()
+            {
                 if ui
                     .add_sized(
                         [width, 31.],
@@ -243,9 +276,9 @@ impl Desk {
         ui.horizontal(|ui| {
             let width = (ui.available_width() - 16.) / 3.;
             for (label, key) in [
-                ("최근 앱", "KEYCODE_APP_SWITCH"),
-                ("홈", "KEYCODE_HOME"),
-                ("뒤로", "KEYCODE_BACK"),
+                (tr!("최근 앱", "Recents"), "KEYCODE_APP_SWITCH"),
+                (tr!("홈", "Home"), "KEYCODE_HOME"),
+                (tr!("뒤로", "Back"), "KEYCODE_BACK"),
             ] {
                 let clicked = ui
                     .add_enabled(
@@ -268,10 +301,16 @@ impl Desk {
 
     fn apps_tab(&mut self, ui: &mut Ui, device: &Device, controlled: bool) {
         ui.horizontal(|ui| {
-            ui.label("앱 검색");
+            ui.label(tr!("앱 검색", "Search apps"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("새로 고침").clicked() {
-                    self.run_action(ui.ctx(), device, "앱 목록 확인", APP_QUERY, None);
+                if ui.button(tr!("새로 고침", "Refresh")).clicked() {
+                    self.run_action(
+                        ui.ctx(),
+                        device,
+                        tr!("앱 목록 확인", "Load apps"),
+                        APP_QUERY,
+                        None,
+                    );
                 }
             });
         });
@@ -306,13 +345,21 @@ impl Desk {
             .and_then(|target| self.panel.apps.iter().find(|app| &app.target == target));
         ui.add(
             egui::Label::new(
-                RichText::new(selected.map_or("앱을 선택하세요", |app| app.details.as_str()))
-                    .small()
-                    .weak(),
+                RichText::new(
+                    selected.map_or(tr!("앱을 선택하세요", "Select an app"), |app| {
+                        app.details.as_str()
+                    }),
+                )
+                .small()
+                .weak(),
             )
             .truncate(),
         );
-        launch |= primary(ui, "선택한 앱 열기", controlled && selected.is_some());
+        launch |= primary(
+            ui,
+            tr!("선택한 앱 열기", "Open selected app"),
+            controlled && selected.is_some(),
+        );
         if launch && controlled {
             if let Some(app) = selected {
                 let target = app.target.clone();
@@ -321,7 +368,7 @@ impl Desk {
                 self.run_action(
                     ui.ctx(),
                     device,
-                    "앱 열기",
+                    tr!("앱 열기", "Open app"),
                     &["shell", "am", "start", option, &quoted],
                     None,
                 );
@@ -334,47 +381,57 @@ impl Desk {
         if primary(
             ui,
             if open {
-                "미러링 화면으로 이동"
+                tr!("미러링 화면으로 이동", "Switch to mirror")
             } else {
-                "미러링 화면 열기"
+                tr!("미러링 화면 열기", "Open mirror")
             },
             true,
         ) {
             self.open_devices(ui.ctx(), true);
         }
         ui.add_space(5.);
-        ui.label(RichText::new("파일 및 기기").small().weak());
+        ui.label(
+            RichText::new(tr!("파일 및 기기", "Files and device"))
+                .small()
+                .weak(),
+        );
         for actions in [
-            [("APK 설치", controlled), ("화면 캡처", true)],
-            [("파일 보내기", controlled), ("파일 가져오기", true)],
-            [("이름 · 태그", true), ("다시 시작", controlled)],
+            [(Tool::Install, controlled), (Tool::Capture, true)],
+            [(Tool::Send, controlled), (Tool::Receive, true)],
+            [(Tool::Rename, true), (Tool::Restart, controlled)],
         ] {
             ui.horizontal(|ui| {
                 let width = (ui.available_width() - 8.) / 2.;
-                for (label, allowed) in actions {
+                for (tool, allowed) in actions {
                     if ui
                         .add_enabled(
                             allowed,
-                            egui::Button::new(label).min_size(Vec2::new(width, 29.)),
+                            egui::Button::new(tool.label()).min_size(Vec2::new(width, 29.)),
                         )
                         .clicked()
                     {
-                        self.tool_action(ui.ctx(), device, label);
+                        self.tool_action(ui.ctx(), device, tool);
                     }
                 }
             });
         }
         ui.add_enabled_ui(controlled, |ui| {
-            ui.menu_button("화면 방향", |ui| {
+            ui.menu_button(tr!("화면 방향", "Orientation"), |ui| {
                 for (label, args) in [
-                    ("세로로 고정", &["lock", "0"][..]),
-                    ("가로로 고정", &["lock", "1"][..]),
-                    ("기기 자동 회전", &["free"][..]),
+                    (tr!("세로로 고정", "Lock portrait"), &["lock", "0"][..]),
+                    (tr!("가로로 고정", "Lock landscape"), &["lock", "1"][..]),
+                    (tr!("기기 자동 회전", "Auto-rotate"), &["free"][..]),
                 ] {
                     if ui.button(label).clicked() {
                         let mut command = vec!["shell", "cmd", "window", "user-rotation"];
                         command.extend_from_slice(args);
-                        self.run_action(ui.ctx(), device, "화면 방향 변경", &command, None);
+                        self.run_action(
+                            ui.ctx(),
+                            device,
+                            tr!("화면 방향 변경", "Set orientation"),
+                            &command,
+                            None,
+                        );
                         ui.close_menu();
                     }
                 }
@@ -383,9 +440,10 @@ impl Desk {
         self.edit_tools(ui, device);
     }
 
-    fn tool_action(&mut self, ctx: &Context, device: &Device, label: &str) {
-        match label {
-            "APK 설치" => {
+    fn tool_action(&mut self, ctx: &Context, device: &Device, tool: Tool) {
+        let label = tool.label();
+        match tool {
+            Tool::Install => {
                 if let Some(file) = rfd::FileDialog::new()
                     .add_filter("Android APK", &["apk"])
                     .pick_file()
@@ -399,7 +457,7 @@ impl Desk {
                     );
                 }
             }
-            "화면 캡처" => {
+            Tool::Capture => {
                 if let Some(file) = rfd::FileDialog::new()
                     .add_filter("PNG", &["png"])
                     .set_file_name("android.png")
@@ -414,7 +472,7 @@ impl Desk {
                     );
                 }
             }
-            "파일 보내기" => {
+            Tool::Send => {
                 if let Some(file) = rfd::FileDialog::new().pick_file() {
                     self.run_action(
                         ctx,
@@ -425,16 +483,17 @@ impl Desk {
                     );
                 }
             }
-            "파일 가져오기" => self.panel.download = Some(String::new()),
-            "이름 · 태그" => {
+            Tool::Receive => self.panel.download = Some(String::new()),
+            Tool::Rename => {
                 let note = &self.preferences.devices[&device.id];
                 self.panel.editor = Some((note.name.clone(), note.tag.clone()));
             }
-            "다시 시작" => {
+            Tool::Restart => {
                 if rfd::MessageDialog::new()
-                    .set_title("기기 다시 시작")
-                    .set_description(format!(
+                    .set_title(tr!("기기 다시 시작", "Restart device"))
+                    .set_description(trf!(
                         "{} 기기를 다시 시작할까요?",
+                        "Restart {}?",
                         self.label(&device.id)
                     ))
                     .set_buttons(rfd::MessageButtons::YesNo)
@@ -444,7 +503,6 @@ impl Desk {
                     self.run_action(ctx, device, label, &["reboot"], None);
                 }
             }
-            _ => {}
         }
     }
 
@@ -452,15 +510,15 @@ impl Desk {
         if let Some((name, tag)) = self.panel.editor.as_mut() {
             let mut submit = false;
             let mut cancel = false;
-            egui::Window::new("이름 · 태그")
+            egui::Window::new(tr!("이름 · 태그", "Name and tag"))
                 .collapsible(false)
                 .show(ui.ctx(), |ui| {
-                    ui.label("이름");
+                    ui.label(tr!("이름", "Name"));
                     ui.text_edit_singleline(name);
-                    ui.label("태그");
+                    ui.label(tr!("태그", "Tag"));
                     ui.text_edit_singleline(tag);
-                    submit = ui.button("저장").clicked();
-                    cancel = ui.button("취소").clicked();
+                    submit = ui.button(tr!("저장", "Save")).clicked();
+                    cancel = ui.button(tr!("취소", "Cancel")).clicked();
                 });
             if submit {
                 if let Some(note) = self.preferences.devices.get_mut(&device.id) {
@@ -476,18 +534,24 @@ impl Desk {
         if let Some(name) = self.panel.download.as_mut() {
             let mut submit = false;
             let mut cancel = false;
-            egui::Window::new("파일 가져오기")
+            egui::Window::new(tr!("파일 가져오기", "Get file"))
                 .collapsible(false)
                 .show(ui.ctx(), |ui| {
-                    ui.label("폰의 다운로드 폴더에 있는 파일 이름");
+                    ui.label(tr!(
+                        "폰의 다운로드 폴더에 있는 파일 이름",
+                        "File name in the device’s Download folder"
+                    ));
                     ui.text_edit_singleline(name);
                     let valid = !name.trim().is_empty()
                         && !name.contains(['/', '\\', ':'])
                         && !matches!(name.trim(), "." | "..");
                     submit = ui
-                        .add_enabled(valid, egui::Button::new("저장 위치 선택"))
+                        .add_enabled(
+                            valid,
+                            egui::Button::new(tr!("저장 위치 선택", "Choose save location")),
+                        )
                         .clicked();
-                    cancel = ui.button("취소").clicked();
+                    cancel = ui.button(tr!("취소", "Cancel")).clicked();
                 });
             if submit {
                 let name = name.trim().to_owned();
@@ -495,7 +559,7 @@ impl Desk {
                     self.run_action(
                         ui.ctx(),
                         device,
-                        "파일 가져오기",
+                        tr!("파일 가져오기", "Get file"),
                         &[
                             "pull",
                             &format!("/sdcard/Download/{name}"),
@@ -533,13 +597,13 @@ fn launchers(output: &str) -> Vec<Launcher> {
         let package = target.split('/').next().unwrap_or_default();
         let name = match package {
             "com.android.chrome" => "Chrome",
-            "com.android.vending" => "Play 스토어",
+            "com.android.vending" => tr!("Play 스토어", "Play Store"),
             "com.facebook.katana" => "Facebook",
             "com.google.android.apps.bard" => "Gemini",
-            "com.google.android.apps.docs" => "Google 드라이브",
-            "com.google.android.apps.maps" => "Google 지도",
-            "com.google.android.apps.messaging" => "Google 메시지",
-            "com.google.android.apps.photos" => "Google 포토",
+            "com.google.android.apps.docs" => tr!("Google 드라이브", "Google Drive"),
+            "com.google.android.apps.maps" => tr!("Google 지도", "Google Maps"),
+            "com.google.android.apps.messaging" => tr!("Google 메시지", "Google Messages"),
+            "com.google.android.apps.photos" => tr!("Google 포토", "Google Photos"),
             "com.google.android.apps.tachyon" => "Google Meet",
             "com.google.android.apps.youtube.music" => "YouTube Music",
             "com.google.android.gm" => "Gmail",
@@ -548,13 +612,13 @@ fn launchers(output: &str) -> Vec<Launcher> {
             "com.linkedin.android" => "LinkedIn",
             "com.microsoft.office.outlook" => "Outlook",
             "com.netflix.mediaclient" => "Netflix",
-            "com.samsung.android.app.notes" => "삼성 노트",
-            "com.samsung.android.app.contacts" => "연락처",
-            "com.samsung.android.dialer" => "전화",
-            "com.samsung.android.gallery3d" => "갤러리",
-            "com.sec.android.app.camera" => "카메라",
-            "com.sec.android.app.myfiles" => "내 파일",
-            "com.sec.android.app.sbrowser" => "삼성 인터넷",
+            "com.samsung.android.app.notes" => tr!("삼성 노트", "Samsung Notes"),
+            "com.samsung.android.app.contacts" => tr!("연락처", "Contacts"),
+            "com.samsung.android.dialer" => tr!("전화", "Phone"),
+            "com.samsung.android.gallery3d" => tr!("갤러리", "Gallery"),
+            "com.sec.android.app.camera" => tr!("카메라", "Camera"),
+            "com.sec.android.app.myfiles" => tr!("내 파일", "My Files"),
+            "com.sec.android.app.sbrowser" => tr!("삼성 인터넷", "Samsung Internet"),
             _ => package.rsplit('.').next().unwrap_or(package),
         };
         list.push(Launcher {
@@ -565,16 +629,22 @@ fn launchers(output: &str) -> Vec<Launcher> {
     }
     list.sort_by_key(|app| app.name.to_lowercase());
     let mut settings: Vec<_> = [
-        ("설정", "SETTINGS"),
-        ("Wi-Fi 설정", "WIFI_SETTINGS"),
-        ("언어 및 입력", "INPUT_METHOD_SETTINGS"),
-        ("접근성 설정", "ACCESSIBILITY_SETTINGS"),
+        (tr!("설정", "Settings"), "SETTINGS"),
+        (tr!("Wi-Fi 설정", "Wi-Fi settings"), "WIFI_SETTINGS"),
+        (
+            tr!("언어 및 입력", "Language and input"),
+            "INPUT_METHOD_SETTINGS",
+        ),
+        (
+            tr!("접근성 설정", "Accessibility settings"),
+            "ACCESSIBILITY_SETTINGS",
+        ),
     ]
     .into_iter()
     .map(|(name, action)| Launcher {
         name: name.into(),
         target: format!("android.settings.{action}"),
-        details: "시스템 설정".into(),
+        details: tr!("시스템 설정", "System settings").into(),
     })
     .collect();
     settings.append(&mut list);

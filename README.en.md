@@ -2,7 +2,25 @@
 
 [한국어](README.md) · [Windows download](https://github.com/hardline7/AndroidDeviceDesk/releases/latest)
 
-**Android Device Desk is a Windows desktop app for mirroring and controlling multiple Android devices.** Drag across the device grid to select several phones, then use a representative screen to send the same tap or swipe to the group. Open a separate full-size mirror and control panel when you need to work on one device. The application interface is in Korean.
+**Android Device Desk is a Windows desktop app for mirroring and controlling multiple Android devices.** Drag across the device grid to select several phones, then use a representative screen to send the same tap or swipe to the group. Open a separate full-size mirror and control panel when you need to work on one device. The interface follows the Windows display language and uses English for all display languages other than Korean.
+
+> The source build includes automatic batch-window opening and Windows display-language detection. In release v0.1.0, click **Batch Control** after dragging.
+
+## Screenshots
+
+Captured with sample devices. Select a thumbnail to open the larger image.
+
+| Korean dashboard | English dashboard |
+| --- | --- |
+| <a href="docs/screenshots/dashboard-ko.png"><img src="docs/screenshots/dashboard-ko.png" width="420" alt="Korean device grid and controls"></a> | <a href="docs/screenshots/dashboard-en.png"><img src="docs/screenshots/dashboard-en.png" width="420" alt="English device grid and controls"></a> |
+
+| Batch control | Individual device tools | App search and launcher |
+| :---: | :---: | :---: |
+| <a href="docs/screenshots/batch-control.png"><img src="docs/screenshots/batch-control.png" width="225" alt="Batch window with representative screen"></a> | <a href="docs/screenshots/device-tools.png"><img src="docs/screenshots/device-tools.png" width="225" alt="Device tools including APK installation and screenshots"></a> | <a href="docs/screenshots/app-launcher.png"><img src="docs/screenshots/app-launcher.png" width="225" alt="Installed apps with search and a launch button"></a> |
+
+**Device filters and tags** · The QA tag narrows the grid and keeps the small-window settings in view.
+
+<a href="docs/screenshots/device-filters.png"><img src="docs/screenshots/device-filters.png" width="760" alt="QA tag filter and selected devices"></a>
 
 ## Features
 
@@ -35,10 +53,10 @@ Get-FileHash .\AndroidDeviceDesk.exe -Algorithm SHA256
 ## Control several devices at once
 
 1. Drag a rectangle over two or more connected cards. You can also use the numbered buttons on the right.
-2. Click **동시 조작** (Batch control). The window uses the selection that was active when it opened.
+2. **Batch Control** opens automatically when you release the mouse after dragging. If you used the numbered buttons, click **Batch Control** on the right. The window uses the selection that was active when it opened.
 3. Choose **대표 화면** (Representative screen). Click inside the image to send a tap or drag inside it to send a swipe. The surrounding padding does not accept screen input.
 4. Use the bottom buttons for **Recents**, **Home**, **Back**, or **Install APK**. Batch APK installation begins after you choose the file and confirm.
-5. Check the completion count in the window. To change the target group, select the new devices in the grid and open batch control again.
+5. Check the completion count in the window. To change the target group, drag across the new devices in the grid.
 
 Tap and swipe locations are relative to the representative image and are mapped to each device's resolution. For predictable results, put devices on the same screen or in the same app first. Devices with a different screen orientation are skipped for gestures. Disconnected and view-only targets do not receive batch control commands. Operations are sent in parallel and completion times can vary by device.
 

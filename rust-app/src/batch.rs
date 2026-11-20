@@ -8,6 +8,8 @@ pub struct Batch {
     pub status: String,
     ids: Vec<String>,
     gesture: Option<(Pos2, f64, egui::Rect)>,
+    focus_pending: bool,
+    input_after: Option<Instant>,
 }
 
 #[derive(Clone)]
@@ -53,12 +55,11 @@ impl Desk {
             open: true,
             leader: ids.first().cloned(),
             ids,
+            focus_pending: true,
+            input_after: Some(Instant::now() + Duration::from_millis(350)),
             ..Batch::default()
         };
-        ctx.send_viewport_cmd_to(
-            egui::ViewportId::from_hash_of("batch-control"),
-            egui::ViewportCommand::Focus,
-        );
+        ctx.request_repaint();
     }
 
     fn eligible_batch(&self) -> Vec<Device> {
@@ -89,29 +90,39 @@ impl Desk {
             self.queue_preview(ctx, &leader);
         }
         let mut close = false;
+        let focus = std::mem::take(&mut self.batch.focus_pending);
         ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("batch-control"),
             egui::ViewportBuilder::default()
-                .with_title("동시 조작")
+                .with_title(tr!("동시 조작", "Batch Control"))
                 .with_inner_size([400., 675.])
-                .with_min_inner_size([335., 465.]),
+                .with_min_inner_size([335., 465.])
+                .with_active(true),
             |ctx, class| {
                 if class == egui::ViewportClass::Embedded {
-                    egui::Window::new("동시 조작").show(ctx, |ui| self.batch_content(ui, &targets));
+                    egui::Window::new(tr!("동시 조작", "Batch Control"))
+                        .show(ctx, |ui| self.batch_content(ui, &targets));
                     return;
                 }
                 close = ctx.input(|i| i.viewport().close_requested());
                 if close {
                     return;
                 }
+                if focus {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
                 egui::TopBottomPanel::top("batch-title")
                     .frame(Frame::new().fill(BLACK).inner_margin(12))
                     .show(ctx, |ui| {
                         ui.label(
-                            RichText::new(format!("동시 조작 · {}대", targets.len()))
-                                .color(Color32::WHITE)
-                                .size(18.)
-                                .strong(),
+                            RichText::new(trf!(
+                                "동시 조작 · {}대",
+                                "Batch Control · {} devices",
+                                targets.len()
+                            ))
+                            .color(Color32::WHITE)
+                            .size(18.)
+                            .strong(),
                         );
                     });
                 egui::CentralPanel::default()
@@ -129,14 +140,19 @@ impl Desk {
     }
 
     fn batch_content(&mut self, ui: &mut Ui, targets: &[Device]) {
-        let permitted = targets.len() >= 2 && !self.batch.busy;
+        let permitted = targets.len() >= 2
+            && !self.batch.busy
+            && self
+                .batch
+                .input_after
+                .is_none_or(|after| Instant::now() >= after);
         ui.horizontal(|ui| {
-            ui.label("대표 화면");
+            ui.label(tr!("대표 화면", "Reference screen"));
             let previous = self.batch.leader.clone();
             let selected = previous
                 .as_ref()
                 .map(|id| self.label(id))
-                .unwrap_or_else(|| "연결된 기기 없음".to_owned());
+                .unwrap_or_else(|| tr!("연결된 기기 없음", "No connected devices").to_owned());
             egui::ComboBox::from_id_salt("batch-leader")
                 .selected_text(selected)
                 .show_ui(ui, |ui| {
@@ -149,7 +165,10 @@ impl Desk {
                 self.batch.gesture = None;
             }
         });
-        ui.label("대표 화면을 클릭하거나 스와이프하면 선택한 기기에 전달됩니다.");
+        ui.label(tr!(
+            "대표 화면을 클릭하거나 스와이프하면 선택한 기기에 전달됩니다.",
+            "Click or swipe the reference screen to control the selected devices."
+        ));
         ui.add_space(4.);
         let height = (ui.available_height() - 107.).max(140.);
         let (area, _) =
@@ -171,59 +190,74 @@ impl Desk {
                 Color32::WHITE,
             );
             if permitted {
-                let response =
-                    ui.interact(rect, ui.id().with("batch-touch"), Sense::click_and_drag());
-                let (origin, cursor, time) = ui.input(|input| {
+                ui.interact(rect, ui.id().with("batch-touch"), Sense::click_and_drag());
+                let (press, release, cursor, time) = ui.input(|input| {
                     (
-                        input.pointer.press_origin(),
+                        input.events.iter().find_map(|event| match event {
+                            egui::Event::PointerButton {
+                                pos,
+                                button: egui::PointerButton::Primary,
+                                pressed: true,
+                                ..
+                            } => Some(*pos),
+                            _ => None,
+                        }),
+                        input.events.iter().rev().find_map(|event| match event {
+                            egui::Event::PointerButton {
+                                pos,
+                                button: egui::PointerButton::Primary,
+                                pressed: false,
+                                ..
+                            } => Some(*pos),
+                            _ => None,
+                        }),
                         input.pointer.interact_pos(),
                         input.time,
                     )
                 });
-                if response.clicked() {
-                    if let Some(at) = cursor.filter(|at| rect.contains(*at)) {
-                        self.dispatch_batch(
-                            ui.ctx(),
-                            targets,
-                            "탭",
-                            Input::Tap(relative(rect, at)),
-                        );
-                    }
-                } else if response.drag_started() {
-                    self.batch.gesture = origin
-                        .filter(|at| rect.contains(*at))
-                        .map(|at| (at, time, rect));
+                // A release inherited from opening this viewport cannot arm a gesture.
+                if let Some(at) = press {
+                    self.batch.gesture = rect.contains(at).then_some((at, time, rect));
                 }
-                if response.dragged() {
+                if release.is_none() {
                     if let (Some((origin, _, _)), Some(at)) = (self.batch.gesture, cursor) {
                         ui.painter()
                             .with_clip_rect(rect)
                             .line_segment([origin, at], Stroke::new(2.0_f32, Color32::WHITE));
                     }
                 }
-                if response.drag_stopped() {
-                    if let (Some((start, begin, origin_rect)), Some(end)) =
-                        (self.batch.gesture.take(), cursor)
-                    {
-                        let duration = ((time - begin) * 1000.).clamp(120., 1600.) as u32;
-                        self.dispatch_batch(
-                            ui.ctx(),
-                            targets,
-                            "스와이프",
-                            Input::Swipe(
-                                relative(origin_rect, start),
-                                relative(origin_rect, end),
-                                duration,
-                            ),
-                        );
+                if let Some(end) = release {
+                    if let Some((start, begin, origin_rect)) = self.batch.gesture.take() {
+                        if start.distance(end) >= 7. {
+                            let duration = ((time - begin) * 1000.).clamp(120., 1600.) as u32;
+                            self.dispatch_batch(
+                                ui.ctx(),
+                                targets,
+                                tr!("스와이프", "Swipe"),
+                                Input::Swipe(
+                                    relative(origin_rect, start),
+                                    relative(origin_rect, end),
+                                    duration,
+                                ),
+                            );
+                        } else if origin_rect.contains(end) {
+                            self.dispatch_batch(
+                                ui.ctx(),
+                                targets,
+                                tr!("탭", "Tap"),
+                                Input::Tap(relative(origin_rect, end)),
+                            );
+                        }
                     }
                 }
+            } else {
+                self.batch.gesture = None;
             }
         } else {
             ui.painter().text(
                 area.center(),
                 egui::Align2::CENTER_CENTER,
-                "대표 화면 불러오는 중",
+                tr!("대표 화면 불러오는 중", "Loading reference screen"),
                 egui::FontId::proportional(14.),
                 Color32::LIGHT_GRAY,
             );
@@ -231,9 +265,9 @@ impl Desk {
         ui.add_space(5.);
         ui.horizontal(|ui| {
             for (label, key) in [
-                ("최근 앱", "KEYCODE_APP_SWITCH"),
-                ("홈", "KEYCODE_HOME"),
-                ("뒤로", "KEYCODE_BACK"),
+                (tr!("최근 앱", "Recents"), "KEYCODE_APP_SWITCH"),
+                (tr!("홈", "Home"), "KEYCODE_HOME"),
+                (tr!("뒤로", "Back"), "KEYCODE_BACK"),
             ] {
                 if ui
                     .add_enabled(
@@ -248,7 +282,7 @@ impl Desk {
             if ui
                 .add_enabled(
                     permitted,
-                    egui::Button::new("APK 설치").min_size(Vec2::new(62., 26.)),
+                    egui::Button::new(tr!("APK 설치", "Install APK")).min_size(Vec2::new(62., 26.)),
                 )
                 .clicked()
             {
@@ -257,13 +291,22 @@ impl Desk {
                     .pick_file()
                 {
                     if rfd::MessageDialog::new()
-                        .set_title("APK 일괄 설치")
-                        .set_description(format!("선택한 {}대에 APK를 설치할까요?", targets.len()))
+                        .set_title(tr!("APK 일괄 설치", "Batch APK installation"))
+                        .set_description(trf!(
+                            "선택한 {}대에 APK를 설치할까요?",
+                            "Install the APK on the {} selected devices?",
+                            targets.len()
+                        ))
                         .set_buttons(rfd::MessageButtons::YesNo)
                         .show()
                         == rfd::MessageDialogResult::Yes
                     {
-                        self.dispatch_batch(ui.ctx(), targets, "APK 설치", Input::Install(file));
+                        self.dispatch_batch(
+                            ui.ctx(),
+                            targets,
+                            tr!("APK 설치", "Install APK"),
+                            Input::Install(file),
+                        );
                     }
                 }
             }
@@ -278,7 +321,7 @@ impl Desk {
             return;
         }
         self.batch.busy = true;
-        self.batch.status = format!("{label} 전송 중…");
+        self.batch.status = trf!("{label} 전송 중…", "Sending {label}…");
         let reference = self
             .batch
             .leader
@@ -316,7 +359,9 @@ impl Desk {
                         })
                         .collect();
                     for job in jobs {
-                        match job.join().unwrap_or_else(|_| Err("입력 전송 실패".into())) {
+                        match job.join().unwrap_or_else(|_| {
+                            Err(tr!("입력 전송 실패", "Could not send input").into())
+                        }) {
                             Ok(()) => delivered += 1,
                             Err(error) if failure.is_none() => failure = Some(error),
                             Err(_) => (),
@@ -369,7 +414,11 @@ fn send_input(
                 None => engine::screen_size(root, device)?,
             };
             if reference.is_some_and(|(width, height)| (width > height) != (size.0 > size.1)) {
-                return Err("대표 화면과 방향이 다른 기기는 건너뛰었습니다.".into());
+                return Err(tr!(
+                    "대표 화면과 방향이 다른 기기는 건너뛰었습니다.",
+                    "Skipped a device with a different screen orientation."
+                )
+                .into());
             }
             command.args(["shell", "input", "touchscreen"]);
             match input {

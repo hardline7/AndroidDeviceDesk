@@ -2,7 +2,25 @@
 
 [English](README.en.md) · [Windows 다운로드](https://github.com/hardline7/AndroidDeviceDesk/releases/latest)
 
-**Android Device Desk는 Windows PC에서 여러 안드로이드 기기의 화면을 한눈에 보고 조작하는 한국어 데스크톱 앱입니다.** 기기 격자에서 폰을 드래그로 묶고, 대표 화면을 한 번 탭하거나 스와이프해 선택한 기기에 같은 입력을 전달할 수 있습니다. 한 대를 자세히 볼 때는 별도의 미러링 창과 기기 조작 패널을 엽니다.
+**Android Device Desk는 Windows PC에서 여러 안드로이드 기기의 화면을 한눈에 보고 조작하는 데스크톱 앱입니다.** Windows 표시 언어가 한국어이면 한국어, 그 외에는 영어로 표시합니다. 기기 격자에서 폰을 드래그로 묶고, 대표 화면을 한 번 탭하거나 스와이프해 선택한 기기에 같은 입력을 전달할 수 있습니다. 한 대를 자세히 볼 때는 별도의 미러링 창과 기기 조작 패널을 엽니다.
+
+> 드래그 후 자동 열림과 Windows 표시 언어 선택은 현재 소스 빌드에 적용됩니다. v0.1.0 릴리스에서는 드래그 후 **동시 조작** 버튼을 누릅니다.
+
+## 화면 미리보기
+
+샘플 기기로 촬영한 화면입니다. 썸네일을 누르면 큰 이미지가 열립니다.
+
+| 한국어 대시보드 | 영어 대시보드 |
+| --- | --- |
+| <a href="docs/screenshots/dashboard-ko.png"><img src="docs/screenshots/dashboard-ko.png" width="420" alt="한국어 기기 격자와 컨트롤 패널"></a> | <a href="docs/screenshots/dashboard-en.png"><img src="docs/screenshots/dashboard-en.png" width="420" alt="영어 기기 격자와 컨트롤 패널"></a> |
+
+| 동시 조작 | 개별 기기 도구 | 앱 검색과 실행 |
+| :---: | :---: | :---: |
+| <a href="docs/screenshots/batch-control.png"><img src="docs/screenshots/batch-control.png" width="225" alt="대표 화면이 열린 동시 조작 창"></a> | <a href="docs/screenshots/device-tools.png"><img src="docs/screenshots/device-tools.png" width="225" alt="APK 설치와 캡처 등 개별 기기 도구"></a> | <a href="docs/screenshots/app-launcher.png"><img src="docs/screenshots/app-launcher.png" width="225" alt="설치된 앱 검색 및 실행 화면"></a> |
+
+**기기 필터와 태그** · QA 태그를 골라 선택한 기기와 소형 창 설정을 확인하는 화면
+
+<a href="docs/screenshots/device-filters.png"><img src="docs/screenshots/device-filters.png" width="760" alt="QA 태그 필터와 선택된 기기"></a>
 
 ## 주요 기능
 
@@ -35,10 +53,10 @@ Get-FileHash .\AndroidDeviceDesk.exe -Algorithm SHA256
 ## 여러 기기를 한 번에 조작하기
 
 1. 격자 위에서 드래그 사각형을 그려 연결된 기기를 두 대 이상 선택합니다. 오른쪽 번호 버튼으로 선택할 수도 있습니다.
-2. 오른쪽 **동시 조작**을 누릅니다. 이 창을 열 때의 선택이 작업 대상으로 지정됩니다.
+2. 드래그를 마치면 **동시 조작** 창이 자동으로 열립니다. 번호 버튼으로 기기를 골랐다면 오른쪽 **동시 조작**을 누릅니다. 창이 열릴 때의 선택이 작업 대상으로 지정됩니다.
 3. **대표 화면**을 선택합니다. 표시되는 폰 화면 안에서 클릭하면 탭을 보내고, 드래그하면 스와이프를 보냅니다. 진한 여백은 화면 입력 영역에서 제외됩니다.
 4. 하단 버튼으로 **최근 앱**, **홈**, **뒤로**를 보낼 수 있습니다. **APK 설치**는 파일을 고르고 확인한 다음 실행됩니다.
-5. 하단의 완료 수를 확인합니다. 대상 구성을 바꾸려면 격자에서 다시 선택한 뒤 **동시 조작** 창을 엽니다.
+5. 하단의 완료 수를 확인합니다. 대상 구성을 바꾸려면 격자에서 다시 드래그합니다.
 
 탭과 스와이프는 대표 화면에서 누른 **상대 위치**를 각 기기의 화면 크기로 변환합니다. 같은 화면이나 같은 앱을 열어 놓으면 결과를 예측하기 쉽습니다. 화면 방향이 다른 기기는 해당 탭·스와이프에서 제외되고, 연결이 끊기거나 보기 전용인 기기에는 동시 조작 명령을 보내지 않습니다. 여러 기기 작업은 병렬로 처리되며 기기 상태에 따라 완료 시점이 다를 수 있습니다.
 

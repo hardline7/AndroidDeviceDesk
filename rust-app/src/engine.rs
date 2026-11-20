@@ -173,7 +173,11 @@ pub fn run(command: &mut Command, seconds: u64) -> Result<Output, String> {
         if Instant::now() > deadline {
             let _ = process.kill();
             let _ = process.wait();
-            return Err("기기 응답 시간이 초과됐습니다.".to_owned());
+            return Err(tr!(
+                "기기 응답 시간이 초과됐습니다.",
+                "The device did not respond in time."
+            )
+            .to_owned());
         }
         thread::sleep(Duration::from_millis(20));
     }
@@ -229,7 +233,13 @@ pub fn png_bytes(bytes: &[u8]) -> Result<&[u8], String> {
     let start = bytes[..bytes.len().min(8192)]
         .windows(PNG_SIGNATURE.len())
         .position(|window| window == PNG_SIGNATURE)
-        .ok_or_else(|| "기기에서 화면 이미지를 받지 못했습니다.".to_owned())?;
+        .ok_or_else(|| {
+            tr!(
+                "기기에서 화면 이미지를 받지 못했습니다.",
+                "The device did not return a screen image."
+            )
+            .to_owned()
+        })?;
     Ok(&bytes[start..])
 }
 
