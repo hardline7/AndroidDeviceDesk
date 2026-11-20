@@ -143,4 +143,6 @@ cargo test --locked --release --manifest-path .\rust-app\Cargo.toml
 
 ## 포함된 구성 요소와 출처
 
+자체 작성한 코드, 빌드 스크립트, 문서는 [Apache-2.0](LICENSE)으로 공개합니다. [프로젝트 고지](NOTICE)와 [EXE 배포 조건 및 호환 DLL 교체 방법](docs/DISTRIBUTION.md)을 함께 확인할 수 있습니다.
+
 EXE는 [Genymobile scrcpy 5.0.1 Windows 배포본](https://github.com/Genymobile/scrcpy/releases/tag/v5.0.1)을 사용합니다. 이 소프트웨어는 LGPL 2.1 이상으로 제공되는 [FFmpeg 9.0.2](https://ffmpeg.org/) 코드를 사용합니다. 대응 소스 코드는 [릴리스의 third-party-sources.zip](https://github.com/hardline7/AndroidDeviceDesk/releases/latest)에서 받을 수 있습니다. 구성 요소 버전, 라이선스 및 원본 빌드 스크립트는 [THIRD_PARTY.md](THIRD_PARTY.md)에 정리했습니다.

@@ -49,10 +49,7 @@ pub fn unpack_runtime(
             continue;
         };
         let file = destination.join(name);
-        if file
-            .metadata()
-            .is_ok_and(|metadata| metadata.len() == entry.size())
-        {
+        if keep_installed_runtime_file(&file, entry.size()) {
             continue;
         }
         let staging = file.with_extension(format!("{}.part", std::process::id()));
@@ -60,16 +57,22 @@ pub fn unpack_runtime(
         io::copy(&mut entry, &mut output)?;
         drop(output);
         if let Err(error) = fs::rename(&staging, &file) {
-            if !file
-                .metadata()
-                .is_ok_and(|metadata| metadata.len() == entry.size())
-            {
+            if !keep_installed_runtime_file(&file, entry.size()) {
                 return Err(error.into());
             }
             let _ = fs::remove_file(staging);
         }
     }
     Ok(destination)
+}
+
+fn keep_installed_runtime_file(path: &Path, bundled_size: u64) -> bool {
+    let is_library = path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("dll"));
+    // Keep user-installed compatible DLLs even when their sizes differ from the bundled build.
+    path.metadata()
+        .is_ok_and(|metadata| metadata.is_file() && (is_library || metadata.len() == bundled_size))
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

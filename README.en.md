@@ -143,4 +143,6 @@ cargo test --locked --release --manifest-path .\rust-app\Cargo.toml
 
 ## Bundled components and source
 
+The original project code, build scripts, and written documentation are licensed under [Apache-2.0](LICENSE). See the [project notice](NOTICE) and the [distribution and DLL replacement guide](docs/DISTRIBUTION.md).
+
 The EXE uses the official [Genymobile scrcpy 5.0.1 Windows release](https://github.com/Genymobile/scrcpy/releases/tag/v5.0.1). This software uses [FFmpeg 9.0.2](https://ffmpeg.org/) code licensed under LGPL 2.1 or later. Corresponding source is available in **third-party-sources.zip** on the [release page](https://github.com/hardline7/AndroidDeviceDesk/releases/latest). Component versions, licenses, and upstream build scripts are listed in [THIRD_PARTY.md](THIRD_PARTY.md).
