@@ -1,8 +1,8 @@
 # Android Device Desk 로컬 API / Local API
 
-기기 데스크의 오른쪽 **로컬 API → 서버 켜기 → API 토큰 복사**를 누릅니다. 같은 PC에서 `http://127.0.0.1:17653`로 접속하고 `Authorization: Bearer <token>` 헤더를 붙입니다. 서버를 다시 켜면 새 토큰이 발급됩니다.
+기기 데스크의 오른쪽 **로컬 API → 서버 켜기 → API 토큰 복사**를 누릅니다. 서버는 `0.0.0.0:17653`에서 대기합니다. 같은 PC에서는 `http://127.0.0.1:17653`, 다른 PC에서는 기기 데스크가 실행 중인 PC의 LAN IPv4 주소를 사용합니다. 예를 들어 `http://192.168.1.20:17653`로 접속합니다. 모든 요청에 `Authorization: Bearer <token>` 헤더를 붙입니다. 서버를 다시 켜면 새 토큰이 발급됩니다.
 
-In Device Desk, choose **Local API → Start server → Copy API token**. Send an `Authorization: Bearer <token>` header to `http://127.0.0.1:17653` from the same PC. Restarting the server generates a fresh token.
+In Device Desk, choose **Local API → Start server → Copy API token**. The server listens on `0.0.0.0:17653`. Use `http://127.0.0.1:17653` on the host PC, or its LAN IPv4 address such as `http://192.168.1.20:17653` from another PC. Send an `Authorization: Bearer <token>` header with each request. Restarting the server generates a fresh token.
 
 ## 엔드포인트 / Endpoints
 
@@ -49,6 +49,8 @@ Coordinates are normalized against each device’s current screen. `(0, 0)` is t
 ## PowerShell 예제 / PowerShell example
 
 앱에서 **API 토큰 복사**를 누른 직후 실행합니다. / Run immediately after choosing **Copy API token**.
+
+다른 PC에서 실행할 때는 `$base`를 서버 PC의 LAN 주소로 바꾸고, 그 PC의 클립보드에 복사한 토큰을 넣습니다. / When running from another PC, set `$base` to the host’s LAN address and place the copied token on the client’s clipboard.
 
 ```powershell
 $base = 'http://127.0.0.1:17653'

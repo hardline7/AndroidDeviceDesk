@@ -4,7 +4,7 @@
 
 **Android Device Desk is a Windows desktop app for mirroring and controlling multiple Android devices.** Drag across the device grid to select several phones, then use a representative screen to send the same tap or swipe to the group. Open a separate full-size mirror and control panel when you need to work on one device. The interface follows the Windows display language and uses English for all display languages other than Korean.
 
-> [Windows release v0.3.0](https://github.com/hardline7/AndroidDeviceDesk/releases/tag/v0.3.0) adds job presets, retries for failed devices, and redesigned controls and tool windows.
+> [Windows release v0.3.1](https://github.com/hardline7/AndroidDeviceDesk/releases/tag/v0.3.1) adds a Windows installer, Korean input in mirrors, LAN API access, an in-app API guide, and a redesigned Batch Control window.
 
 ## Screenshots from connected devices
 
@@ -37,8 +37,8 @@ Captured in Device Desk on Windows with Android devices connected over USB. Sele
 
 ## Download and connect
 
-1. Download **AndroidDeviceDesk.exe** from the [latest release](https://github.com/hardline7/AndroidDeviceDesk/releases/latest).
-2. Run the EXE on 64-bit Windows. The first run extracts the bundled engine to your local app data folder. Python and manual archive extraction are unnecessary.
+1. Download **AndroidDeviceDesk-Setup.exe** from the [latest release](https://github.com/hardline7/AndroidDeviceDesk/releases/latest), or run the portable **AndroidDeviceDesk.exe** if you prefer.
+2. On 64-bit Windows 10 or later, run Setup and open **Android Device Desk** from the Start menu. The first run extracts the bundled engine to your local app data folder.
 3. Enable **Developer options → USB debugging** on the phone. On many Galaxy devices, you can reveal Developer options by tapping **Build number** seven times under **Settings → About phone → Software information**. Labels vary by model and language.
 4. Connect the phone with a USB cable that supports data. Unlock it and approve the USB debugging prompt.
 5. Double-click the device card to open a mirror. Use **새로 고침** (Refresh) to refresh discovery manually.
@@ -69,6 +69,7 @@ Tap and swipe locations are relative to the representative image and are mapped 
 - The **자동** (Auto) window mode uses the small-window settings when you open three or more devices together. You can explicitly choose large or small mode. New settings apply to mirrors opened afterward.
 - Enable **화면 녹화** (Screen recording) before starting a mirror to save MKV files under `%USERPROFILE%\Videos\Android Device Desk`. Close the mirror to finish the recording.
 - Turning **미리보기** (Previews) off stops grid capture. An open batch-control window continues refreshing the representative display for input.
+- To type Korean in a mirror, select **Mirroring → Keyboard → Physical keyboard · IME** and reopen the mirror. Press **Left Alt+K** in the mirror to open the phone’s physical keyboard settings and add Korean. Use the phone’s configured keyboard language shortcut. You can also copy composed Hangul in Windows and paste it with **Ctrl+V** in the mirror. Use **Compatible keyboard · SDK** if the device does not support a physical keyboard.
 
 ## Share the PC’s Internet over USB
 
@@ -91,7 +92,7 @@ Saved presets persist across app restarts. [Run and retry through the local API]
 ## Get started with the local API
 
 1. In Device Desk, choose **Local API → Start server → Copy API token**.
-2. In PowerShell on the same PC, query device numbers and control availability.
+2. In PowerShell, query device numbers and control availability. From another PC, set `$api` to the host’s LAN address and put the copied token on the client’s clipboard.
 
 ```powershell
 $api = 'http://127.0.0.1:17653'

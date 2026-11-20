@@ -81,6 +81,7 @@ struct Preferences {
     size_mode: String,
     windows: WindowSettings,
     presets: presets::Catalog,
+    mirror_keyboard: MirrorKeyboard,
 }
 
 impl Default for Preferences {
@@ -90,6 +91,31 @@ impl Default for Preferences {
             size_mode: "자동".into(),
             windows: WindowSettings::default(),
             presets: presets::Catalog::default(),
+            mirror_keyboard: MirrorKeyboard::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum MirrorKeyboard {
+    #[default]
+    Physical,
+    Compatible,
+}
+
+impl MirrorKeyboard {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Physical => tr!("물리 키보드 · 한글 지원", "Physical keyboard · IME"),
+            Self::Compatible => tr!("호환 키보드 · SDK", "Compatible keyboard · SDK"),
+        }
+    }
+
+    fn arg(self) -> &'static str {
+        match self {
+            Self::Physical => "--keyboard=uhid",
+            Self::Compatible => "--keyboard=sdk",
         }
     }
 }
@@ -954,6 +980,30 @@ impl Desk {
             ui.checkbox(&mut self.audio, tr!("기기 소리", "Device audio"));
             ui.checkbox(&mut self.record, tr!("화면 녹화", "Record screen"));
         });
+        let previous = self.preferences.mirror_keyboard;
+        ui.horizontal_wrapped(|ui| {
+            ui.label(tr!("키보드", "Keyboard"));
+            egui::ComboBox::from_id_salt("mirror-keyboard")
+                .selected_text(previous.label())
+                .show_ui(ui, |ui| {
+                    for mode in [MirrorKeyboard::Physical, MirrorKeyboard::Compatible] {
+                        ui.selectable_value(&mut self.preferences.mirror_keyboard, mode, mode.label());
+                    }
+                })
+                .response
+                .on_hover_text(tr!(
+                    "미러링 창을 다시 열면 적용됩니다. 물리 키보드 모드에서 왼쪽 Alt+K를 눌러 폰의 키보드 언어를 설정할 수 있습니다.",
+                    "Reopen the mirror to apply. In physical keyboard mode, use Left Alt+K to open the phone’s keyboard language settings."
+                ));
+        });
+        if previous != self.preferences.mirror_keyboard {
+            self.save();
+            self.status = tr!(
+                "키보드 방식은 미러링 창을 다시 열면 적용됩니다.",
+                "The keyboard mode applies when you reopen the mirror."
+            )
+            .into();
+        }
     }
 
     fn rail_devices(&mut self, ui: &mut Ui) {
@@ -1096,7 +1146,9 @@ impl Desk {
                 format!("--max-fps={fps}"),
                 format!("--video-bit-rate={bitrate}"),
             ]);
-            if !self.control {
+            if self.control {
+                command.arg(self.preferences.mirror_keyboard.arg());
+            } else {
                 command.arg("--no-control");
             }
             if !self.audio {

@@ -4,7 +4,7 @@
 
 **Android Device Desk는 Windows PC에서 여러 안드로이드 기기의 화면을 한눈에 보고 조작하는 데스크톱 앱입니다.** Windows 표시 언어가 한국어이면 한국어, 그 외에는 영어로 표시합니다. 기기 격자에서 폰을 드래그로 묶고, 대표 화면을 한 번 탭하거나 스와이프해 선택한 기기에 같은 입력을 전달할 수 있습니다. 한 대를 자세히 볼 때는 별도의 미러링 창과 기기 조작 패널을 엽니다.
 
-> [v0.3.0 Windows 릴리스](https://github.com/hardline7/AndroidDeviceDesk/releases/tag/v0.3.0)에 작업 프리셋, 실패 기기 재실행, 새 컨트롤 패널과 도구 창이 포함됩니다.
+> [v0.3.1 Windows 릴리스](https://github.com/hardline7/AndroidDeviceDesk/releases/tag/v0.3.1)에 Windows 설치 마법사, 미러링 한글 입력, LAN API, 앱 내 API 문서, 새 동시 조작 창이 포함됩니다.
 
 ## 실제 연결 화면
 
@@ -37,8 +37,8 @@ Windows에서 기기 데스크를 실행하고 USB로 연결한 Android 기기 �
 
 ## 다운로드와 첫 연결
 
-1. [최신 릴리스](https://github.com/hardline7/AndroidDeviceDesk/releases/latest)의 **AndroidDeviceDesk.exe**를 다운로드합니다.
-2. Windows 64비트 PC에서 EXE를 실행합니다. Python이나 별도 압축 해제는 필요하지 않습니다. 첫 실행 시 내장 엔진이 사용자 폴더에 준비됩니다.
+1. [최신 릴리스](https://github.com/hardline7/AndroidDeviceDesk/releases/latest)에서 설치형 **AndroidDeviceDesk-Setup.exe**를 다운로드합니다. 설치 없이 쓰려면 휴대용 **AndroidDeviceDesk.exe**를 실행하세요.
+2. Windows 10 이상 64비트 PC에서 설치 마법사를 실행한 뒤 시작 메뉴에서 **Android Device Desk**를 엽니다. 첫 실행 시 내장 엔진이 사용자 폴더에 준비됩니다.
 3. 폰의 **개발자 옵션 → USB 디버깅**을 켭니다. 갤럭시에서는 일반적으로 **설정 → 휴대전화 정보 → 소프트웨어 정보**에서 **빌드번호**를 일곱 번 누르면 개발자 옵션이 나타납니다. 메뉴 이름은 모델과 시스템 언어에 따라 다를 수 있습니다.
 4. 데이터 통신이 가능한 USB 케이블로 연결합니다. 폰 잠금을 해제하고 **USB 디버깅 허용** 요청을 승인합니다.
 5. 카드가 표시되면 더블클릭해 미러링을 열어 봅니다. 상태가 갱신되지 않으면 **새로 고침**을 누릅니다.
@@ -69,6 +69,7 @@ Get-FileHash .\AndroidDeviceDesk.exe -Algorithm SHA256
 - 오른쪽의 **자동** 창 모드는 한 번에 세 대 이상을 열 때 소형 창 설정을 사용합니다. **대형**, **소형**을 지정할 수도 있습니다. 설정은 새로 연 미러링 창에 적용됩니다.
 - **화면 녹화**를 켜고 미러링을 열면 `%USERPROFILE%\Videos\Android Device Desk` 아래에 MKV 파일이 저장됩니다. 녹화가 끝나면 미러링 창을 닫아 파일을 마무리합니다.
 - **미리보기**를 끄면 격자 캡처가 멈춥니다. 동시 조작을 열면 입력 기준이 되는 대표 화면은 계속 갱신됩니다.
+- 미러링에서 한글을 입력하려면 **미러링 → 키보드 → 물리 키보드 · 한글 지원**을 선택한 뒤 미러링 창을 다시 엽니다. 창에서 **왼쪽 Alt+K**를 눌러 폰의 물리 키보드 설정을 열고 한국어 입력을 추가하세요. 한영 전환은 폰에 설정된 물리 키보드 단축키를 사용합니다. Windows에서 이미 입력한 한글은 복사해서 미러링 창에 **Ctrl+V**로 붙여넣을 수도 있습니다. 물리 키보드를 지원하지 않는 기기는 **호환 키보드 · SDK**를 선택하세요.
 
 ## USB로 PC 인터넷 공유하기
 
@@ -91,7 +92,7 @@ PC와 USB 케이블이 연결돼 있고 기기 데스크가 실행 중이어야 
 ## 로컬 API 빠르게 시작하기
 
 1. 기기 데스크 오른쪽에서 **로컬 API → 서버 켜기 → API 토큰 복사**를 누릅니다.
-2. 이 PC의 PowerShell에서 기기 번호와 제어 가능 상태를 조회합니다.
+2. 이 PC의 PowerShell에서 기기 번호와 제어 가능 상태를 조회합니다. 다른 PC에서 실행하려면 `$api`를 서버 PC의 LAN 주소로 바꾸고 그 PC의 클립보드에 복사한 토큰을 넣습니다.
 
 ```powershell
 $api = 'http://127.0.0.1:17653'

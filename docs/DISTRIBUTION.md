@@ -20,6 +20,26 @@ Windows EXE는 별도 프로세스로 실행하는 scrcpy, ADB와 USB 인터넷 
 
 `v0.1.0`의 EXE와 소스 묶음은 그 릴리스 버전을 기준으로 확인합니다. 위 표는 다음 EXE를 배포하기 위한 기준입니다. [기존 릴리스](https://github.com/hardline7/AndroidDeviceDesk/releases/tag/v0.1.0)
 
+## Windows 설치 마법사 빌드 / Build the Windows installer
+
+[NSIS 3.13](https://nsis.sourceforge.io/Download)의 `makensis.exe`, 릴리스용 `AndroidDeviceDesk.exe`, 해당 빌드의 `licenses.zip`을 준비한 뒤 저장소 루트에서 실행합니다. 저장소의 Cargo 버전과 EXE의 릴리스 버전은 일치해야 합니다.
+
+Run this command from the repository root with NSIS 3.13, the release executable, and its license archive. The Cargo package version must match the release version of the input executable.
+
+```powershell
+.\scripts\build-installer.ps1 `
+  -AppExe dist\v0.3.1\AndroidDeviceDesk.exe `
+  -LicensesZip dist\v0.3.1\licenses.zip
+```
+
+컴파일러가 PATH에 없으면 `-Compiler`로 `makensis.exe` 경로를 지정하세요. 설치 파일과 SHA-256은 기본적으로 `dist/v<버전>`에 생성됩니다. 배포 시 설치 파일을 동일 버전의 서드파티 대응 소스와 함께 제공합니다.
+
+Pass `-Compiler` if `makensis.exe` is outside PATH. The installer and checksum are written to `dist/v<version>` by default. Distribute the installer alongside the corresponding third-party source for that version.
+
+설치는 현재 Windows 사용자에 적용되며 시작 메뉴와 Windows 설정의 **설치된 앱**에 등록됩니다. 바탕 화면 바로가기는 선택 사항입니다. 제거해도 프리셋과 설정이 들어 있는 `%LOCALAPPDATA%\AndroidDeviceDesk`는 보존됩니다.
+
+Setup installs for the current Windows user and registers in the Start menu and **Installed apps**. A desktop shortcut is optional. Uninstalling preserves presets and settings under `%LOCALAPPDATA%\AndroidDeviceDesk`.
+
 ## 호환 DLL 교체
 
 1. 기기 데스크와 실행 중인 미러링 창을 닫습니다.

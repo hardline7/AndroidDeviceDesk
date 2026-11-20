@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -11,10 +12,11 @@ use crate::presets::{Catalog, Preset};
 use super::*;
 
 const PORT: u16 = 17653;
+const BIND_ADDRESS: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
 const MAX_BODY: usize = 32 * 1024;
 pub const MAX_STEPS: usize = 32;
 const HISTORY: usize = 32;
-const URL: &str = "http://127.0.0.1:17653";
+const GUIDE: &str = include_str!("../../docs/API.md");
 
 pub struct Api {
     pub core: Arc<Core>,
@@ -280,6 +282,25 @@ impl Desk {
     }
 
     pub fn api_window(&mut self, ctx: &Context) {
+        if self.tool == Some(Tool::ApiDocs) {
+            let closed = desk_ui::window(
+                ctx,
+                Tool::ApiDocs,
+                tr!("로컬 API 문서", "Local API guide"),
+                [740., 700.],
+                |ui| {
+                    if ui.add(control(tr!("← 로컬 API", "← Local API"))).clicked() {
+                        self.tool = Some(Tool::Api);
+                    }
+                    ui.separator();
+                    render_guide(ui);
+                },
+            );
+            if closed {
+                self.tool = Some(Tool::Api);
+            }
+            return;
+        }
         if self.tool != Some(Tool::Api) {
             return;
         }
@@ -303,13 +324,18 @@ impl Desk {
                     desk_ui::note(
                         ui,
                         tr!(
-                            "이 PC의 스크립트에서 기기를 선택하고 작업을 실행할 수 있어요.",
-                            "Run device actions from scripts on this PC."
+                            "이 PC나 같은 로컬 네트워크에서 기기를 선택하고 작업을 실행할 수 있어요.",
+                            "Run device actions from this PC or another device on the local network."
                         ),
                     );
                     if running {
                         ui.separator();
-                        ui.label(RichText::new(URL).monospace().size(17.));
+                        ui.label(RichText::new(format!("{BIND_ADDRESS}:{PORT}")).monospace().size(17.));
+                        desk_ui::note(ui, &trf!(
+                            "다른 PC에서는 http://<이 PC의 IPv4 주소>:{}로 접속하세요.",
+                            "From another PC, connect to http://<this PC’s IPv4 address>:{}.",
+                            PORT
+                        ));
                     }
                     ui.add_space(3.);
                     ui.horizontal_wrapped(|ui| {
@@ -334,6 +360,9 @@ impl Desk {
                                 }
                                 Err(error) => self.api.message = error,
                             }
+                        }
+                        if ui.add(control(tr!("API 문서", "API guide"))).clicked() {
+                            self.tool = Some(Tool::ApiDocs);
                         }
                     });
                 });
@@ -374,6 +403,62 @@ impl Desk {
     }
 }
 
+// The bundled guide uses headings, paragraphs, tables, and fenced examples.
+fn render_guide(ui: &mut Ui) {
+    let mut lines = GUIDE.lines().skip(1).peekable();
+    while let Some(line) = lines.next() {
+        if let Some(heading) = line.strip_prefix("## ") {
+            ui.add_space(7.);
+            desk_ui::heading(ui, heading);
+        } else if line.starts_with("```") {
+            let code = lines
+                .by_ref()
+                .take_while(|line| !line.starts_with("```"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            card().show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
+                if ui.add(control(tr!("예제 복사", "Copy example"))).clicked() {
+                    ui.ctx().copy_text(code.clone());
+                }
+                ui.add(
+                    egui::Label::new(RichText::new(code).monospace())
+                        .wrap()
+                        .selectable(true),
+                );
+            });
+        } else if let Some(row) = line.strip_prefix('|') {
+            if lines.peek().is_some_and(|next| next.starts_with("| ---")) {
+                lines.next();
+                continue;
+            }
+            if let [first, second, description] = row
+                .trim_end_matches('|')
+                .split('|')
+                .collect::<Vec<_>>()
+                .as_slice()
+            {
+                ui.label(
+                    RichText::new(format!(
+                        "{}  {}",
+                        first.trim().trim_matches('`'),
+                        second.trim().replace('`', "")
+                    ))
+                    .monospace(),
+                );
+                desk_ui::note(ui, &description.trim().replace('`', ""));
+                ui.separator();
+            }
+        } else if !line.trim().is_empty() {
+            ui.add(
+                egui::Label::new(line.replace("**", "").replace('`', ""))
+                    .wrap()
+                    .selectable(true),
+            );
+        }
+    }
+}
+
 impl Api {
     pub fn new(root: PathBuf, presets: Catalog) -> Self {
         Self {
@@ -387,10 +472,8 @@ impl Api {
 impl Running {
     fn listen(core: Arc<Core>, port: u16) -> Result<Self, String> {
         let token = token()?;
-        let server = Arc::new(
-            Server::http((std::net::Ipv4Addr::LOCALHOST, port))
-                .map_err(|error| error.to_string())?,
-        );
+        let server =
+            Arc::new(Server::http((BIND_ADDRESS, port)).map_err(|error| error.to_string())?);
         let stopped = Arc::new(AtomicBool::new(false));
         let (listener, canceled, secret) = (server.clone(), stopped.clone(), token.clone());
         thread::spawn(move || {
@@ -1139,8 +1222,16 @@ mod tests {
             0,
         )
         .unwrap();
-        let addr = server.server.server_addr().to_ip().unwrap();
-        assert!(addr.ip().is_loopback());
+        let bound = server.server.server_addr().to_ip().unwrap();
+        assert_eq!(bound.ip(), BIND_ADDRESS);
+        let host = std::env::var("DEVICE_DESK_TEST_LAN_IPV4")
+            .map(|value| {
+                value
+                    .parse::<Ipv4Addr>()
+                    .expect("LAN test requires an IPv4 address")
+            })
+            .unwrap_or(Ipv4Addr::LOCALHOST);
+        let addr = SocketAddr::from((host, bound.port()));
         assert_eq!(server.token.len(), 64);
         assert_eq!(request(addr, "invalid", "GET", "/v1/devices", "").0, 401);
         let (code, devices) = request(addr, &server.token, "GET", "/v1/devices", "");
@@ -1177,7 +1268,8 @@ mod tests {
         catalog.items.insert(1, preset.clone());
         let core = Arc::new(Core::new(PathBuf::new(), entries.clone(), catalog));
         let server = Running::listen(core.clone(), 0).unwrap();
-        let addr = server.server.server_addr().to_ip().unwrap();
+        let port = server.server.server_addr().to_ip().unwrap().port();
+        let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
 
         let send = |verb, path, body| request(addr, &server.token, verb, path, body);
         let list = send("GET", "/v1/presets", "").1;

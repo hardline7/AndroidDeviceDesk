@@ -11,6 +11,7 @@ pub enum Tool {
     Presets,
     Internet,
     Api,
+    ApiDocs,
 }
 
 pub fn window(

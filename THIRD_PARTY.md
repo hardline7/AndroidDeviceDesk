@@ -4,7 +4,7 @@ The original Device Desk code, build scripts, and written documentation are lice
 
 Android Device Desk runs the unmodified scrcpy 5.0.1 Windows x64 distribution. Its engine archive is verified against the SHA-256 published by the scrcpy project before being embedded in the release executable. The contents extract into `%LOCALAPPDATA%\AndroidDeviceDesk\engine\scrcpy-win64-v5.0.1`. The scrcpy executable loads its multimedia libraries as separate DLLs from that directory.
 
-Release `v0.2.0` includes `licenses.zip` and `third-party-sources.zip` for its bundled components. For each release, use the archive attached to the same tag as the executable.
+Release assets include `licenses.zip` and `third-party-sources.zip` for the included components. Use the archives attached to the same tag as the executable.
 
 | Component | Upstream source or notices |
 | --- | --- |
@@ -16,5 +16,6 @@ Release `v0.2.0` includes `licenses.zip` and `third-party-sources.zip` for its b
 | SDL 3.4.18 | [Source and zlib license](https://github.com/libsdl-org/SDL/tree/release-3.4.18) · [Build recipe](https://github.com/Genymobile/scrcpy/blob/v5.0.1/app/deps/sdl.sh) |
 | ADB, Android SDK Platform-Tools 37.0.1 | [AOSP ADB source](https://android.googlesource.com/platform/packages/modules/adb/) · [Upstream package recipe](https://github.com/Genymobile/scrcpy/blob/v5.0.1/app/deps/adb_windows.sh) · `platform-tools-37.0.1-NOTICE.txt` in the source asset |
 | Gnirehtet 2.5.1 | [Source and original release](https://github.com/Genymobile/gnirehtet/tree/v2.5.1) · [Apache-2.0 license](third-party/gnirehtet-LICENSE.txt) |
+| NSIS 3.13 (installer) | [Licenses](https://nsis.sourceforge.io/License). The corresponding MSYS2 source package is included in `third-party-sources.zip`, and the NSIS copyright and licenses are included in `licenses.zip`. |
 
 Rust crate versions are pinned in [Cargo.lock](rust-app/Cargo.lock). Refresh the Windows x64 dependency inventory and the associated license and notice files for each release.
